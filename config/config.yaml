@@ -1,0 +1,37 @@
+gateway:
+  host: 0.0.0.0
+  port: 8080
+
+routing:
+  # network thresholds that trigger degraded routes
+  small_latency_ms: 600      # above this -> prefer small cloud model
+  small_loss: 0.05
+  local_latency_ms: 2500     # above this -> prefer local model even while online
+  local_loss: 0.25
+  provider_failure_threshold: 3
+  provider_cooldown_s: 30
+  request_timeout_s: 25
+  max_tokens_default: 512
+
+cache:
+  ttl_s: 900
+  max_entries: 512
+
+models:
+  # used when the matching API key is present in the environment
+  openai:
+    large: gpt-4o
+    small: gpt-4o-mini
+  anthropic:
+    large: claude-sonnet-5
+    small: claude-haiku-4-5-20251001
+  local:
+    model: qwen2.5:0.5b
+  mock:
+    large: mock-large
+    small: mock-small
+    alt: mock-alt
+
+network:
+  simulator_enabled: true
+  default_profile: excellent
