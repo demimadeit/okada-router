@@ -77,6 +77,18 @@
     font-family:"IBM Plex Mono",monospace;font-size:.64rem;color:var(--ink-soft);
     background:var(--chip);border-radius:999px;padding:.22rem .6rem;margin-top:-.5rem;}
   .routechip .dot{width:6px;height:6px;border-radius:50%;}
+  .keybox{align-self:stretch;background:var(--panel);border:1px solid var(--accent);
+    border-radius:14px;padding:.9rem 1rem;display:flex;flex-direction:column;gap:.6rem;}
+  .kb-msg{font-size:.85rem;color:var(--ink-soft);}
+  .kb-row{display:flex;gap:.5rem;}
+  .kb-row input{flex:1;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    border-radius:10px;padding:.5rem .7rem;font:inherit;font-size:.85rem;outline:none;
+    font-family:"IBM Plex Mono",monospace;}
+  .kb-row button{border:none;background:var(--accent);color:#fff;border-radius:10px;
+    padding:.5rem 1rem;font:inherit;font-weight:700;font-size:.85rem;cursor:pointer;}
+  .notice{align-self:stretch;font-size:.78rem;color:var(--ink-soft);background:var(--chip);
+    border-radius:10px;padding:.55rem .8rem;line-height:1.45;}
+  .notice b{color:var(--ink)}
   .typing{align-self:flex-start;display:flex;gap:.3rem;padding:.6rem .2rem;}
   .typing span{width:7px;height:7px;border-radius:50%;background:var(--ink-soft);
     animation:blink 1.2s infinite;}
@@ -138,10 +150,25 @@ const led = document.getElementById('led');
 const statustext = document.getElementById('statustext');
 const devbar = document.getElementById('devbar');
 const PROFILES = ["real","excellent","4g","3g","edge","high-latency","packet-loss","intermittent","offline"];
-// public deployments: open the app as /app/#key=YOUR_OKADA_API_KEY once; it persists
-const KEY = new URLSearchParams(location.hash.slice(1)).get('key') || localStorage.getItem('okada_key') || '';
+// public deployments: open as /app/#key=YOUR_KEY once, or paste it when prompted
+let KEY = new URLSearchParams(location.hash.slice(1)).get('key') || localStorage.getItem('okada_key') || '';
 if (KEY) localStorage.setItem('okada_key', KEY);
-const AUTH = KEY ? {authorization: 'Bearer ' + KEY} : {};
+const AUTH = () => KEY ? {authorization: 'Bearer ' + KEY} : {};
+let LOCAL_AVAILABLE = null;   // does this gateway have an on-device model?
+
+function askForKey(msg) {
+  const box = el('keybox');
+  box.innerHTML = `<div class="kb-msg">${msg}</div>
+    <div class="kb-row"><input id="keyin" placeholder="paste your Okada key" autocomplete="off">
+    <button id="keygo">Save</button></div>`;
+  box.querySelector('#keygo').onclick = () => {
+    const v = box.querySelector('#keyin').value.trim();
+    if (!v) return;
+    KEY = v; localStorage.setItem('okada_key', v); box.remove();
+    el('routechip').textContent = 'key saved — send your message again';
+  };
+  box.querySelector('#keyin').onkeydown = e => { if (e.key === 'Enter') box.querySelector('#keygo').click(); };
+}
 const ROUTE = {
   "cloud-large":{label:"cloud",color:"var(--ok)"},
   "cloud-small":{label:"cloud · small",color:"var(--ok)"},
@@ -158,7 +185,7 @@ for (const p of PROFILES) {
   if (p === 'excellent') b.classList.add('active');
   b.onclick = async () => {
     await fetch('/okada/network', {method:'POST',
-      headers:{'content-type':'application/json', ...AUTH}, body: JSON.stringify({profile:p})});
+      headers:{'content-type':'application/json', ...AUTH()}, body: JSON.stringify({profile:p})});
     refreshStatus();
     devbar.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
   };
@@ -177,6 +204,23 @@ async function refreshStatus(route) {
   } catch { led.className = 'led down'; statustext.textContent = 'gateway?'; }
 }
 refreshStatus(); setInterval(() => refreshStatus(), 5000);
+
+// tell the user honestly what this gateway can and cannot do
+(async () => {
+  try {
+    const h = await (await fetch('/okada/health')).json();
+    LOCAL_AVAILABLE = !!h.routes?.local?.available;
+    const remote = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+    if (remote && !LOCAL_AVAILABLE) {
+      const n = document.createElement('div');
+      n.className = 'notice';
+      n.innerHTML = '<b>Remote gateway.</b> This Okada runs on a server, so it protects against ' +
+        'provider outages, slow links and repeat costs — but it cannot answer when <i>your</i> ' +
+        'connection dies. For true offline answers, Okada runs on the device.';
+      document.getElementById('hero')?.appendChild(n);
+    }
+  } catch {}
+})();
 
 function el(cls, parent) {
   const d = document.createElement('div');
@@ -215,10 +259,25 @@ async function ask(text) {
   const think = el('typing'); think.innerHTML = '<span></span><span></span><span></span>';
   try {
     const r = await fetch('/v1/chat/completions', {method:'POST',
-      headers:{'content-type':'application/json', ...AUTH},
+      headers:{'content-type':'application/json', ...AUTH()},
       body: JSON.stringify({model:'auto', messages:history})});
-    const data = await r.json();
     think.remove();
+
+    if (r.status === 401) {
+      askForKey('This gateway needs an Okada key.');
+      send.disabled = false; return;
+    }
+    if (!r.ok) {
+      const body = await r.text();
+      el('routechip').textContent = `gateway error ${r.status}: ${body.slice(0, 140)}`;
+      send.disabled = false; return;
+    }
+
+    const data = await r.json();
+    if (!data.choices?.[0]) {
+      el('routechip').textContent = 'unexpected reply: ' + JSON.stringify(data).slice(0, 140);
+      send.disabled = false; return;
+    }
     const answer = data.choices[0].message.content;
     history.push({role:'assistant', content:answer});
     await typeOut(el('msg bot'), answer);
@@ -226,9 +285,13 @@ async function ask(text) {
     routeChip(o.route, o.total_ms || 0, data.okada_queue_id ? ` · ${data.okada_queue_id}` : '');
     refreshStatus((ROUTE[o.route]||{}).label);
     if (data.okada_queue_id) pollQueue(data.okada_queue_id);
-  } catch {
+  } catch (e) {
     think.remove();
-    el('routechip').textContent = 'gateway unreachable — is okada running on :8080?';
+    // fetch() itself failed: the gateway could not be reached at all
+    const remote = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+    el('routechip').textContent = !navigator.onLine && remote
+      ? "you're offline and this Okada gateway is on a remote server — offline answers need Okada running on this device"
+      : `cannot reach the Okada gateway at ${location.host} (${e.message || 'network error'})`;
   }
   send.disabled = false; input.focus();
 }
