@@ -25,6 +25,15 @@ models:
   anthropic:
     large: claude-sonnet-5
     small: claude-haiku-4-5-20251001
+  groq:
+    large: llama-3.3-70b-versatile
+    small: llama-3.1-8b-instant
+  gemini:
+    large: gemini-2.5-flash
+    small: gemini-2.5-flash-lite
+  openrouter:
+    large: openrouter/auto
+    small: meta-llama/llama-3.1-8b-instruct
   local:
     model: qwen2.5:0.5b                    # ollama fallback backend
     llamacpp_url: http://127.0.0.1:8081    # preferred backend: llama-server (GGUF)

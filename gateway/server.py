@@ -10,6 +10,7 @@ calling the provider directly, and is what the benchmark compares against.
 """
 import asyncio
 import json
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -76,6 +77,18 @@ async def root():
     return RedirectResponse("/app/")
 
 
+def _unauthorized(request: Request):
+    """If OKADA_API_KEY is set (public deployments), require it as a Bearer
+    token on state-changing/costly endpoints. Unset = open (local dev)."""
+    key = os.getenv("OKADA_API_KEY")
+    if not key:
+        return None
+    if request.headers.get("authorization") == f"Bearer {key}":
+        return None
+    return JSONResponse({"error": {"message": "missing or invalid Okada API key",
+                                   "type": "auth_error"}}, status_code=401)
+
+
 def _queued_response(qid: str, model_hint: str) -> dict:
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -120,6 +133,8 @@ def _sse(response: dict):
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
+    if denied := _unauthorized(request):
+        return denied
     t0 = time.perf_counter()
     body = await request.json()
     messages = body.get("messages", [])
@@ -232,6 +247,8 @@ async def get_network():
 
 @app.post("/okada/network")
 async def set_network(request: Request):
+    if denied := _unauthorized(request):
+        return denied
     body = await request.json()
     profile = body.get("profile")
     if profile == "real":
@@ -269,6 +286,8 @@ async def queue_item(qid: str):
 
 
 @app.post("/okada/cache/clear")
-async def cache_clear():
+async def cache_clear(request: Request):
+    if denied := _unauthorized(request):
+        return denied
     cache.clear()
     return {"ok": True}

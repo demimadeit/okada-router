@@ -87,12 +87,22 @@ def build_registry(cfg: dict) -> Registry:
     reg = Registry()
     cloud = []  # (provider, large_model, small_model)
 
-    if os.getenv("OPENAI_API_KEY"):
-        p = OpenAIProvider()
-        cloud.append((p, models["openai"]["large"], models["openai"]["small"]))
-    if os.getenv("ANTHROPIC_API_KEY"):
-        p = AnthropicProvider()
-        cloud.append((p, models["anthropic"]["large"], models["anthropic"]["small"]))
+    # first env var found wins the primary slot; the next becomes alternate
+    compat_sources = [
+        ("OPENAI_API_KEY", "openai", "https://api.openai.com/v1"),
+        ("ANTHROPIC_API_KEY", "anthropic", None),
+        ("GROQ_API_KEY", "groq", "https://api.groq.com/openai/v1"),
+        ("GEMINI_API_KEY", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
+        ("OPENROUTER_API_KEY", "openrouter", "https://openrouter.ai/api/v1"),
+    ]
+    for key_env, name, base_url in compat_sources:
+        if not os.getenv(key_env) or name not in models:
+            continue
+        if name == "anthropic":
+            p = AnthropicProvider()
+        else:
+            p = OpenAIProvider(name=name, base_url=base_url, key_env=key_env)
+        cloud.append((p, models[name]["large"], models[name]["small"]))
 
     if not cloud:
         reg.mock_mode = True
