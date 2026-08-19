@@ -64,19 +64,32 @@ phone/laptop browser ──▶ Okada app (served at /)
 
 ## 6. Performance benchmarks
 
-Resilience (12 requests/cell, identical simulated network, mock cloud —
-labelled synthetic; run `scripts/benchmark.py` to reproduce):
+Resilience, **real cloud** (Groq `openai/gpt-oss-120b` / `gpt-oss-20b`) vs
+**real local GGUF** (Qwen2.5-1.5B Q4_K_M via llama-server), 8 requests per
+cell, identical simulated network conditions applied to both modes.
+Reproduce with `scripts/benchmark.py`; raw data in `logs/bench-*.json`.
 
-| Network profile | Naive direct call | Okada |
-|---|---|---|
-| excellent | 100% answered | 100% |
-| 4g | 83% | 100% |
-| 3g | 92% | 100% |
-| high-latency | 92% | 100% |
-| 30% packet loss | 67% | 100% |
-| intermittent | 42% | 100% |
-| offline | 0% | **100% (local GGUF)** |
-| **overall (n=84)** | **68%** | **100%** |
+| Network profile | Naive direct call | Okada | Okada's routes |
+|---|---|---|---|
+| excellent | 100% answered | 100% | cloud-large ×8 |
+| 4g | 100% | 100% | cloud-large ×6, cloud-small ×2 |
+| 3g | 50% | 100% | cloud-small ×7, local ×1 |
+| high-latency | 100% | 100% | cloud-small ×8 |
+| 30% packet loss | 75% | 100% | local ×8 |
+| intermittent | 62% | 100% | local ×5, cloud-small ×3 |
+| offline | **0%** | **100%** | local ×8 |
+| **overall (n=56 per mode)** | **69.6% (39/56)** | **100% (56/56)** | |
+
+Latency is the honest trade: Okada matches or beats the direct call on
+healthy and high-latency links (p95 4029ms vs 4604ms on high-latency,
+because the smaller model returns less data), and is deliberately slower
+under heavy loss (p95 8400ms vs 1887ms) — the direct call is "faster" there
+only because a quarter of its requests fail outright and are not counted.
+Okada trades seconds for answers that arrive at all.
+
+Honest scope note: network conditions are simulated at the application
+layer, not measured on a Nigerian carrier. The cloud and local inference
+are real.
 
 Local throughput and memory (`scripts/measure_local.py`):
 
