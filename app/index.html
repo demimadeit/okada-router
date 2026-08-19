@@ -8,82 +8,126 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
   :root{
-    --paper:#F4F6F5; --panel:#FFFFFF; --ink:#1A2321; --ink-soft:#4A5754;
-    --line:#D8DEDC; --accent:#C2620A; --ok:#178A50; --warn:#C2620A; --down:#C03A2B;
-    --me:#1A2321; --me-ink:#F4F6F5; --chip:#EDF0EF;
+    --paper:#F6F7F6; --panel:#FFFFFF; --ink:#171D1B; --ink-soft:#5A6663;
+    --line:#E0E5E3; --accent:#C2620A; --accent-soft:#F5E4D2;
+    --ok:#178A50; --warn:#C2620A; --down:#C03A2B; --chip:#EDF0EF;
+    --me:#1E2624; --me-ink:#F2F4F3; --shadow:0 1px 3px rgba(0,0,0,.06);
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --paper:#121716; --panel:#1A201F; --ink:#E8ECEA; --ink-soft:#9FACA8;
-      --line:#2C3533; --accent:#E8842B; --ok:#3BB877; --warn:#E8842B; --down:#E06153;
-      --me:#E8ECEA; --me-ink:#121716; --chip:#232B29;
+      --paper:#0F1413; --panel:#171D1B; --ink:#E9EDEB; --ink-soft:#93A09C;
+      --line:#242C2A; --accent:#EE8A2F; --accent-soft:#33230F;
+      --ok:#3BB877; --warn:#EE8A2F; --down:#E06153; --chip:#1D2523;
+      --me:#E9EDEB; --me-ink:#0F1413; --shadow:0 1px 3px rgba(0,0,0,.4);
     }
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;background:var(--paper);color:var(--ink);
-    font-family:"Archivo",system-ui,sans-serif;display:flex;flex-direction:column;}
+    font-family:"Archivo",system-ui,sans-serif;display:flex;flex-direction:column;
+    font-variation-settings:"wdth" 100;}
 
-  header{display:flex;align-items:center;gap:.7rem;padding:.8rem 1rem;
-    border-bottom:1px solid var(--line);background:var(--panel);
-    position:sticky;top:0;z-index:2;}
-  .logo{font-variation-settings:"wdth" 118;font-weight:800;font-size:1.15rem;letter-spacing:-.01em;}
-  .logo span{color:var(--accent)}
+  header{display:flex;align-items:center;gap:.7rem;padding:.75rem 1rem;
+    position:sticky;top:0;z-index:3;background:color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter:blur(10px);}
+  .logo{font-variation-settings:"wdth" 120;font-weight:800;font-size:1.2rem;letter-spacing:-.02em;}
+  .logo em{font-style:normal;color:var(--accent)}
   #status{margin-left:auto;display:flex;align-items:center;gap:.45rem;
-    font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-soft);
-    background:var(--chip);border-radius:999px;padding:.3rem .7rem;cursor:pointer;
-    border:1px solid var(--line);}
-  .led{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;}
-  .led.warn{background:var(--warn)} .led.down{background:var(--down)}
+    font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-soft);
+    background:var(--panel);border-radius:999px;padding:.35rem .8rem;cursor:pointer;
+    border:1px solid var(--line);box-shadow:var(--shadow);user-select:none;}
+  .led{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);}
+  .led.warn{background:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent);}
+  .led.down{background:var(--down);box-shadow:0 0 0 3px color-mix(in srgb, var(--down) 18%, transparent);}
 
-  #devbar{display:none;gap:.4rem;flex-wrap:wrap;padding:.6rem 1rem;
+  #devbar{display:none;gap:.4rem;flex-wrap:wrap;padding:.7rem 1rem;justify-content:center;
     background:var(--panel);border-bottom:1px solid var(--line);}
   #devbar.open{display:flex}
   #devbar button{font-family:"IBM Plex Mono",monospace;font-size:.7rem;
     border:1px solid var(--line);background:var(--chip);color:var(--ink);
-    border-radius:999px;padding:.3rem .6rem;cursor:pointer;}
+    border-radius:999px;padding:.35rem .7rem;cursor:pointer;transition:all .15s;}
+  #devbar button:hover{border-color:var(--accent)}
   #devbar button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
 
-  main{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.8rem;}
-  .msg{max-width:85%;padding:.65rem .9rem;border-radius:14px;line-height:1.45;
-    font-size:.95rem;white-space:pre-wrap;word-break:break-word;}
-  .msg.me{align-self:flex-end;background:var(--me);color:var(--me-ink);border-bottom-right-radius:4px;}
-  .msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);
-    border-bottom-left-radius:4px;}
-  .meta{align-self:flex-start;font-family:"IBM Plex Mono",monospace;font-size:.66rem;
-    color:var(--ink-soft);padding:0 .3rem;}
-  .meta b{color:var(--accent);font-weight:600;}
-  .thinking{align-self:flex-start;color:var(--ink-soft);font-size:.85rem;padding:0 .3rem;}
-  .hello{color:var(--ink-soft);font-size:.9rem;text-align:center;margin:auto;
-    max-width:22em;line-height:1.5;}
-  .hello b{color:var(--ink)}
+  main{flex:1;overflow-y:auto;scroll-behavior:smooth;}
+  .col{max-width:720px;margin:0 auto;padding:1.2rem 1rem 2rem;display:flex;
+    flex-direction:column;gap:1.1rem;}
 
-  footer{display:flex;gap:.6rem;padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom));
-    background:var(--panel);border-top:1px solid var(--line);position:sticky;bottom:0;}
-  #input{flex:1;border:1px solid var(--line);background:var(--paper);color:var(--ink);
-    border-radius:999px;padding:.65rem 1rem;font:inherit;font-size:.95rem;outline:none;}
-  #input:focus{border-color:var(--accent)}
-  #send{border:none;background:var(--accent);color:#fff;border-radius:999px;
-    padding:.65rem 1.1rem;font:inherit;font-weight:700;cursor:pointer;flex:none;}
-  #send:disabled{opacity:.5}
+  /* empty state */
+  #hero{margin:auto;text-align:center;padding:3rem 1.5rem 2rem;max-width:600px;}
+  #hero .mark{font-variation-settings:"wdth" 120;font-weight:800;font-size:2.4rem;
+    letter-spacing:-.02em;margin-bottom:.4rem;}
+  #hero .mark em{font-style:normal;color:var(--accent)}
+  #hero .tag{color:var(--ink-soft);font-size:1rem;line-height:1.5;margin-bottom:1.8rem;}
+  .starters{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;text-align:left;}
+  .starter{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:.8rem .95rem;font-size:.85rem;color:var(--ink-soft);cursor:pointer;
+    box-shadow:var(--shadow);transition:border-color .15s, transform .1s;line-height:1.4;}
+  .starter:hover{border-color:var(--accent);transform:translateY(-1px);}
+  .starter b{display:block;color:var(--ink);font-weight:700;margin-bottom:.15rem;font-size:.88rem;}
+  @media (max-width:480px){ .starters{grid-template-columns:1fr} #hero{padding-top:1.5rem} }
+
+  /* messages */
+  .msg{max-width:88%;line-height:1.55;font-size:.97rem;white-space:pre-wrap;word-break:break-word;}
+  .msg.me{align-self:flex-end;background:var(--me);color:var(--me-ink);
+    padding:.7rem 1rem;border-radius:18px;border-bottom-right-radius:6px;}
+  .msg.bot{align-self:flex-start;padding:.1rem .15rem;}
+  .routechip{align-self:flex-start;display:inline-flex;align-items:center;gap:.4rem;
+    font-family:"IBM Plex Mono",monospace;font-size:.64rem;color:var(--ink-soft);
+    background:var(--chip);border-radius:999px;padding:.22rem .6rem;margin-top:-.5rem;}
+  .routechip .dot{width:6px;height:6px;border-radius:50%;}
+  .typing{align-self:flex-start;display:flex;gap:.3rem;padding:.6rem .2rem;}
+  .typing span{width:7px;height:7px;border-radius:50%;background:var(--ink-soft);
+    animation:blink 1.2s infinite;}
+  .typing span:nth-child(2){animation-delay:.2s}
+  .typing span:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+  @media (prefers-reduced-motion: reduce){ .typing span{animation:none;opacity:.6} }
+
+  footer{position:sticky;bottom:0;background:linear-gradient(transparent, var(--paper) 35%);
+    padding:.8rem 1rem calc(.9rem + env(safe-area-inset-bottom));}
+  .composer{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:.5rem;
+    background:var(--panel);border:1px solid var(--line);border-radius:26px;
+    padding:.45rem .45rem .45rem 1.1rem;box-shadow:var(--shadow);}
+  .composer:focus-within{border-color:var(--accent)}
+  #input{flex:1;border:none;background:none;color:var(--ink);font:inherit;
+    font-size:.97rem;outline:none;resize:none;max-height:120px;line-height:1.45;padding:.45rem 0;}
+  #send{border:none;background:var(--accent);color:#fff;border-radius:50%;
+    width:38px;height:38px;font-size:1.05rem;cursor:pointer;flex:none;
+    display:grid;place-items:center;transition:opacity .15s;}
+  #send:disabled{opacity:.35}
+  .hint{max-width:720px;margin:.5rem auto 0;text-align:center;
+    font-family:"IBM Plex Mono",monospace;font-size:.62rem;color:var(--ink-soft);}
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">okada<span>.</span></div>
-  <div id="status" title="tap to open network simulator">
-    <span class="led" id="led"></span><span id="statustext">checking…</span>
+  <div class="logo">okada<em>.</em></div>
+  <div id="status" title="network">
+    <span class="led" id="led"></span><span id="statustext">…</span>
   </div>
 </header>
 <div id="devbar"></div>
-<main id="chat">
-  <div class="hello"><b>Okada answers, whatever the network does.</b><br>
-  Ask anything. Watch the pill above — cloud when the network is good,
-  on-device when it isn't, queued when there's nothing at all.</div>
-</main>
+<main><div class="col" id="chat">
+  <div id="hero">
+    <div class="mark">okada<em>.</em></div>
+    <div class="tag">AI that answers whatever the network does.<br>
+      Cloud when it's good. On your device when it's not. Never a dead spinner.</div>
+    <div class="starters">
+      <div class="starter" role="button" tabindex="0" data-q="Draft a short SMS telling my customer the delivery is delayed but on the way."><b>Draft a message</b>Delivery delayed SMS for a customer</div>
+      <div class="starter" role="button" tabindex="0" data-q="Summarise: the van broke down at Ojota, three stops left, driver says two hours."><b>Summarise a report</b>Van breakdown, what matters</div>
+      <div class="starter" role="button" tabindex="0" data-q="Translate to Nigerian Pidgin: The network is down, please try again later."><b>Translate to Pidgin</b>"The network is down…"</div>
+      <div class="starter" role="button" tabindex="0" data-q="Give me three ways a small shop in Lagos can keep selling when the POS network is down."><b>Business advice</b>Selling when POS is down</div>
+    </div>
+  </div>
+</div></main>
 <footer>
-  <input id="input" placeholder="Message Okada…" autocomplete="off">
-  <button id="send">Send</button>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Message Okada…"></textarea>
+    <button id="send" aria-label="Send">↑</button>
+  </div>
+  <div class="hint" id="hint">tap the pill to change network · okada routes every message live</div>
 </footer>
 
 <script>
@@ -94,13 +138,20 @@ const led = document.getElementById('led');
 const statustext = document.getElementById('statustext');
 const devbar = document.getElementById('devbar');
 const PROFILES = ["real","excellent","4g","3g","edge","high-latency","packet-loss","intermittent","offline"];
-const ROUTE_LABEL = {"cloud-large":"cloud","cloud-small":"cloud·small","alternate":"cloud·alt",
-                     "cache":"cache","local":"on-device","queue":"queued"};
+const ROUTE = {
+  "cloud-large":{label:"cloud",color:"var(--ok)"},
+  "cloud-small":{label:"cloud · small",color:"var(--ok)"},
+  "alternate":{label:"cloud · backup",color:"var(--ok)"},
+  "cache":{label:"instant · cached",color:"var(--accent)"},
+  "local":{label:"on-device · offline OK",color:"var(--warn)"},
+  "queue":{label:"queued · will sync",color:"var(--down)"},
+};
 const history = [];
 
 for (const p of PROFILES) {
   const b = document.createElement('button');
   b.textContent = p;
+  if (p === 'excellent') b.classList.add('active');
   b.onclick = async () => {
     await fetch('/okada/network', {method:'POST',
       headers:{'content-type':'application/json'}, body: JSON.stringify({profile:p})});
@@ -123,21 +174,41 @@ async function refreshStatus(route) {
 }
 refreshStatus(); setInterval(() => refreshStatus(), 5000);
 
-function bubble(cls, text) {
+function el(cls, parent) {
   const d = document.createElement('div');
-  d.className = cls; d.textContent = text;
-  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  d.className = cls; (parent || chat).appendChild(d);
+  d.scrollIntoView({block:'end'});
   return d;
 }
 
-async function ask() {
-  const text = input.value.trim();
+function routeChip(route, ms, extra) {
+  const r = ROUTE[route] || {label:route, color:'var(--ink-soft)'};
+  const c = el('routechip');
+  c.innerHTML = `<span class="dot" style="background:${r.color}"></span>` +
+    `${r.label} · ${Math.round(ms)}ms${extra || ''}`;
+}
+
+function typeOut(node, text) {
+  let i = 0;
+  const step = Math.max(1, Math.round(text.length / 80));
+  return new Promise(res => {
+    const t = setInterval(() => {
+      i += step;
+      node.textContent = text.slice(0, i);
+      node.scrollIntoView({block:'end'});
+      if (i >= text.length) { clearInterval(t); res(); }
+    }, 16);
+  });
+}
+
+async function ask(text) {
+  text = (text ?? input.value).trim();
   if (!text) return;
-  input.value = ''; send.disabled = true;
-  document.querySelector('.hello')?.remove();
-  bubble('msg me', text);
+  input.value = ''; input.style.height = 'auto'; send.disabled = true;
+  document.getElementById('hero')?.remove();
+  el('msg me').textContent = text;
   history.push({role:'user', content:text});
-  const think = bubble('thinking', '…');
+  const think = el('typing'); think.innerHTML = '<span></span><span></span><span></span>';
   try {
     const r = await fetch('/v1/chat/completions', {method:'POST',
       headers:{'content-type':'application/json'},
@@ -146,18 +217,14 @@ async function ask() {
     think.remove();
     const answer = data.choices[0].message.content;
     history.push({role:'assistant', content:answer});
-    bubble('msg bot', answer);
+    await typeOut(el('msg bot'), answer);
     const o = data.okada || {};
-    const label = ROUTE_LABEL[o.route] || o.route || '?';
-    bubble('meta', '').innerHTML =
-      `via <b>${label}</b> · ${Math.round(o.total_ms||0)}ms` +
-      (o.fallback_count ? ` · ${o.fallback_count} fallback` : '') +
-      (data.okada_queue_id ? ` · id ${data.okada_queue_id}` : '');
-    refreshStatus(label);
+    routeChip(o.route, o.total_ms || 0, data.okada_queue_id ? ` · ${data.okada_queue_id}` : '');
+    refreshStatus((ROUTE[o.route]||{}).label);
     if (data.okada_queue_id) pollQueue(data.okada_queue_id);
-  } catch (e) {
+  } catch {
     think.remove();
-    bubble('meta', 'gateway unreachable — is it running on :8080?');
+    el('routechip').textContent = 'gateway unreachable — is okada running on :8080?';
   }
   send.disabled = false; input.focus();
 }
@@ -170,15 +237,25 @@ async function pollQueue(qid) {
         clearInterval(timer);
         const answer = s.response.choices[0].message.content;
         history.push({role:'assistant', content:answer});
-        bubble('msg bot', answer);
-        bubble('meta', `queued request ${qid} delivered after reconnect`);
+        await typeOut(el('msg bot'), answer);
+        routeChip('cloud-large', 0, ` · synced ${qid}`);
       }
     } catch {}
   }, 3000);
 }
 
-send.onclick = ask;
-input.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+document.querySelectorAll('.starter').forEach(s => {
+  s.onclick = () => ask(s.dataset.q);
+  s.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ask(s.dataset.q); } };
+});
+send.onclick = () => ask();
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+});
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+});
 </script>
 </body>
 </html>
