@@ -98,6 +98,15 @@ def test_direct_mode_fails_offline_where_okada_survives(client):
     assert okada.json()["okada"]["route"] == "local"
 
 
+def test_real_mode_toggle(client):
+    r = client.post("/okada/network", json={"profile": "real"})
+    assert r.status_code == 200
+    state = client.get("/okada/network").json()
+    assert state["source"] == "probe" and state["profile"] == "real"
+    r = client.post("/okada/network", json={"profile": "excellent"})
+    assert client.get("/okada/network").json()["source"] == "simulated"
+
+
 def test_stats_endpoint_reports(client):
     chat(client, "stats please")
     s = client.get("/okada/stats").json()

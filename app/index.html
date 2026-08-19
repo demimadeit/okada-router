@@ -93,7 +93,7 @@ const send = document.getElementById('send');
 const led = document.getElementById('led');
 const statustext = document.getElementById('statustext');
 const devbar = document.getElementById('devbar');
-const PROFILES = ["excellent","4g","3g","edge","high-latency","packet-loss","intermittent","offline"];
+const PROFILES = ["real","excellent","4g","3g","edge","high-latency","packet-loss","intermittent","offline"];
 const ROUTE_LABEL = {"cloud-large":"cloud","cloud-small":"cloud·small","alternate":"cloud·alt",
                      "cache":"cache","local":"on-device","queue":"queued"};
 const history = [];
@@ -116,7 +116,9 @@ async function refreshStatus(route) {
     const s = await (await fetch('/okada/network')).json();
     const sev = !s.online ? 'down' : (s.latency_ms >= 600 || s.packet_loss >= 0.05) ? 'warn' : '';
     led.className = 'led ' + sev;
-    statustext.textContent = (s.online ? s.profile : 'offline') + (route ? ' · ' + route : '');
+    const ms = s.source === 'probe' && s.online ? ` ${Math.round(s.latency_ms)}ms` : '';
+    statustext.textContent = (s.online ? s.profile + ms : (s.profile === 'real' ? 'offline (real)' : 'offline'))
+      + (route ? ' · ' + route : '');
   } catch { led.className = 'led down'; statustext.textContent = 'gateway?'; }
 }
 refreshStatus(); setInterval(() => refreshStatus(), 5000);

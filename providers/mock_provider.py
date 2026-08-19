@@ -5,7 +5,9 @@ and by the test suite and benchmark."""
 import time
 import uuid
 
-from gateway.providers import Provider
+import httpx
+
+from gateway.providers import Provider, ProviderError
 from network.simulator import simulator
 
 
@@ -17,6 +19,14 @@ class MockCloudProvider(Provider):
         self.name = name
 
     async def chat(self, messages, model, max_tokens, temperature) -> dict:
+        if not simulator.enabled:
+            # real mode: a cloud call must actually cross the network —
+            # prove it, so the mock genuinely fails when the link is dead
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    await client.head("https://www.gstatic.com/generate_204")
+            except httpx.HTTPError as e:
+                raise ProviderError(f"mock-cloud: network unreachable: {e}") from e
         payload = sum(len(m.get("content", "")) for m in messages) + 400
         await simulator.impose(payload_bytes=payload)
         last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")

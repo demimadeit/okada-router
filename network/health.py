@@ -1,18 +1,29 @@
 """Network state as seen by the router.
 
-Simulated mode (default in week 1): state comes from the simulator profile.
-Live mode: state comes from lightweight probes against a well-known endpoint.
-The router only ever consumes NetworkState, so swapping the source later
-does not touch routing logic.
+Two sources, same NetworkState — routing logic never knows the difference:
+- "sim":  state comes from the simulator profile (demo/dev, default)
+- "real": state comes from continuous lightweight probes of the actual
+  network — latency is the median of recent successful probes, packet loss
+  is the failure fraction of the probe window, offline means the last
+  probes actually failed. Kill the WiFi and the router notices by itself.
 """
+import asyncio
+import statistics
 import time
+from collections import deque
 from dataclasses import dataclass, asdict
 
 import httpx
 
 from network.simulator import NetworkSimulator
 
-PROBE_URL = "https://www.gstatic.com/generate_204"
+PROBE_URLS = [
+    "https://www.gstatic.com/generate_204",
+    "https://cloudflare.com/cdn-cgi/trace",
+]
+PROBE_INTERVAL_S = 2.0
+PROBE_TIMEOUT_S = 2.0
+WINDOW = 10
 
 
 @dataclass
@@ -30,12 +41,18 @@ class NetworkState:
 class NetworkMonitor:
     def __init__(self, simulator: NetworkSimulator):
         self.simulator = simulator
-        self._probe_latency_ms: float = 0.0
-        self._probe_online: bool = True
-        self._probe_ts: float = 0.0
+        self.mode = "sim"
+        self._window: deque[tuple[bool, float]] = deque(maxlen=WINDOW)
+        self._probe_i = 0
+
+    def set_mode(self, mode: str):
+        self.mode = mode
+        self.simulator.enabled = mode == "sim"
+        if mode == "real":
+            self._window.clear()
 
     def get_state(self) -> NetworkState:
-        if self.simulator.enabled:
+        if self.mode == "sim":
             p = self.simulator.profile
             return NetworkState(
                 online=self.simulator.currently_online(),
@@ -44,24 +61,32 @@ class NetworkMonitor:
                 profile=p.name,
                 source="simulated",
             )
+        window = list(self._window)
+        oks = [ms for ok, ms in window if ok]
+        # offline = the last 2 consecutive probes both actually failed
+        recent = window[-2:]
+        online = not (len(recent) == 2 and not any(ok for ok, _ in recent))
         return NetworkState(
-            online=self._probe_online,
-            latency_ms=self._probe_latency_ms,
-            packet_loss=0.0,  # loss estimation needs repeated probes; week 2
-            profile="live",
+            online=online,
+            latency_ms=round(statistics.median(oks), 1) if oks else 0.0,
+            packet_loss=round(1 - len(oks) / len(window), 2) if window else 0.0,
+            profile="real",
             source="probe",
         )
 
-    async def probe(self) -> NetworkState:
-        """One live reachability/latency probe (used when simulator is off)."""
+    async def probe_once(self) -> None:
+        url = PROBE_URLS[self._probe_i % len(PROBE_URLS)]
+        self._probe_i += 1
         t0 = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                await client.head(PROBE_URL)
-            self._probe_online = True
-            self._probe_latency_ms = (time.perf_counter() - t0) * 1000
+            async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_S) as client:
+                await client.head(url)
+            self._window.append((True, (time.perf_counter() - t0) * 1000))
         except Exception:
-            self._probe_online = False
-            self._probe_latency_ms = 0.0
-        self._probe_ts = time.time()
-        return self.get_state()
+            self._window.append((False, 0.0))
+
+    async def probe_loop(self):
+        while True:
+            if self.mode == "real":
+                await self.probe_once()
+            await asyncio.sleep(PROBE_INTERVAL_S)

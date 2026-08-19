@@ -61,9 +61,10 @@ async def _flusher():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_flusher())
+    tasks = [asyncio.create_task(_flusher()), asyncio.create_task(monitor.probe_loop())]
     yield
-    task.cancel()
+    for t in tasks:
+        t.cancel()
 
 
 app = FastAPI(title="Okada Router", lifespan=lifespan)
@@ -233,10 +234,18 @@ async def get_network():
 async def set_network(request: Request):
     body = await request.json()
     profile = body.get("profile")
+    if profile == "real":
+        monitor.set_mode("real")
+        # prime the window so the switch reflects reality immediately
+        for _ in range(3):
+            await monitor.probe_once()
+        return {"ok": True, "profile": "real", "state": monitor.get_state().to_dict()}
     try:
+        monitor.set_mode("sim")
         p = simulator.set_profile(profile)
     except KeyError as e:
-        return JSONResponse({"error": str(e), "profiles": sorted(PROFILES)}, status_code=400)
+        return JSONResponse({"error": str(e), "profiles": sorted(PROFILES) + ["real"]},
+                            status_code=400)
     return {"ok": True, "profile": p.name, "state": monitor.get_state().to_dict()}
 
 
