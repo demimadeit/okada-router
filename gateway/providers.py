@@ -80,7 +80,7 @@ def build_registry(cfg: dict) -> Registry:
     # imports here so tests can build registries with pure mocks
     from providers.openai_provider import OpenAIProvider
     from providers.anthropic_provider import AnthropicProvider
-    from providers.local_provider import OllamaProvider
+    from providers.local_chain import LocalChainProvider
     from providers.mock_provider import MockCloudProvider
 
     models = cfg["models"]
@@ -106,5 +106,9 @@ def build_registry(cfg: dict) -> Registry:
     if len(cloud) > 1:
         reg.roles["alternate"] = Role(cloud[1][0], cloud[1][1])
 
-    reg.roles["local"] = Role(OllamaProvider(), models["local"]["model"])
+    local = LocalChainProvider(
+        llamacpp_url=models["local"].get("llamacpp_url", "http://127.0.0.1:8081"),
+        ollama_model=models["local"]["model"],
+    )
+    reg.roles["local"] = Role(local, models["local"]["model"])
     return reg

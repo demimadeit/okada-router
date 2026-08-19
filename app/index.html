@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Okada</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --paper:#F4F6F5; --panel:#FFFFFF; --ink:#1A2321; --ink-soft:#4A5754;
+    --line:#D8DEDC; --accent:#C2620A; --ok:#178A50; --warn:#C2620A; --down:#C03A2B;
+    --me:#1A2321; --me-ink:#F4F6F5; --chip:#EDF0EF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#121716; --panel:#1A201F; --ink:#E8ECEA; --ink-soft:#9FACA8;
+      --line:#2C3533; --accent:#E8842B; --ok:#3BB877; --warn:#E8842B; --down:#E06153;
+      --me:#E8ECEA; --me-ink:#121716; --chip:#232B29;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Archivo",system-ui,sans-serif;display:flex;flex-direction:column;}
+
+  header{display:flex;align-items:center;gap:.7rem;padding:.8rem 1rem;
+    border-bottom:1px solid var(--line);background:var(--panel);
+    position:sticky;top:0;z-index:2;}
+  .logo{font-variation-settings:"wdth" 118;font-weight:800;font-size:1.15rem;letter-spacing:-.01em;}
+  .logo span{color:var(--accent)}
+  #status{margin-left:auto;display:flex;align-items:center;gap:.45rem;
+    font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-soft);
+    background:var(--chip);border-radius:999px;padding:.3rem .7rem;cursor:pointer;
+    border:1px solid var(--line);}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;}
+  .led.warn{background:var(--warn)} .led.down{background:var(--down)}
+
+  #devbar{display:none;gap:.4rem;flex-wrap:wrap;padding:.6rem 1rem;
+    background:var(--panel);border-bottom:1px solid var(--line);}
+  #devbar.open{display:flex}
+  #devbar button{font-family:"IBM Plex Mono",monospace;font-size:.7rem;
+    border:1px solid var(--line);background:var(--chip);color:var(--ink);
+    border-radius:999px;padding:.3rem .6rem;cursor:pointer;}
+  #devbar button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+
+  main{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.8rem;}
+  .msg{max-width:85%;padding:.65rem .9rem;border-radius:14px;line-height:1.45;
+    font-size:.95rem;white-space:pre-wrap;word-break:break-word;}
+  .msg.me{align-self:flex-end;background:var(--me);color:var(--me-ink);border-bottom-right-radius:4px;}
+  .msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);
+    border-bottom-left-radius:4px;}
+  .meta{align-self:flex-start;font-family:"IBM Plex Mono",monospace;font-size:.66rem;
+    color:var(--ink-soft);padding:0 .3rem;}
+  .meta b{color:var(--accent);font-weight:600;}
+  .thinking{align-self:flex-start;color:var(--ink-soft);font-size:.85rem;padding:0 .3rem;}
+  .hello{color:var(--ink-soft);font-size:.9rem;text-align:center;margin:auto;
+    max-width:22em;line-height:1.5;}
+  .hello b{color:var(--ink)}
+
+  footer{display:flex;gap:.6rem;padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom));
+    background:var(--panel);border-top:1px solid var(--line);position:sticky;bottom:0;}
+  #input{flex:1;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    border-radius:999px;padding:.65rem 1rem;font:inherit;font-size:.95rem;outline:none;}
+  #input:focus{border-color:var(--accent)}
+  #send{border:none;background:var(--accent);color:#fff;border-radius:999px;
+    padding:.65rem 1.1rem;font:inherit;font-weight:700;cursor:pointer;flex:none;}
+  #send:disabled{opacity:.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">okada<span>.</span></div>
+  <div id="status" title="tap to open network simulator">
+    <span class="led" id="led"></span><span id="statustext">checking…</span>
+  </div>
+</header>
+<div id="devbar"></div>
+<main id="chat">
+  <div class="hello"><b>Okada answers, whatever the network does.</b><br>
+  Ask anything. Watch the pill above — cloud when the network is good,
+  on-device when it isn't, queued when there's nothing at all.</div>
+</main>
+<footer>
+  <input id="input" placeholder="Message Okada…" autocomplete="off">
+  <button id="send">Send</button>
+</footer>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const send = document.getElementById('send');
+const led = document.getElementById('led');
+const statustext = document.getElementById('statustext');
+const devbar = document.getElementById('devbar');
+const PROFILES = ["excellent","4g","3g","edge","high-latency","packet-loss","intermittent","offline"];
+const ROUTE_LABEL = {"cloud-large":"cloud","cloud-small":"cloud·small","alternate":"cloud·alt",
+                     "cache":"cache","local":"on-device","queue":"queued"};
+const history = [];
+
+for (const p of PROFILES) {
+  const b = document.createElement('button');
+  b.textContent = p;
+  b.onclick = async () => {
+    await fetch('/okada/network', {method:'POST',
+      headers:{'content-type':'application/json'}, body: JSON.stringify({profile:p})});
+    refreshStatus();
+    devbar.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  };
+  devbar.appendChild(b);
+}
+document.getElementById('status').onclick = () => devbar.classList.toggle('open');
+
+async function refreshStatus(route) {
+  try {
+    const s = await (await fetch('/okada/network')).json();
+    const sev = !s.online ? 'down' : (s.latency_ms >= 600 || s.packet_loss >= 0.05) ? 'warn' : '';
+    led.className = 'led ' + sev;
+    statustext.textContent = (s.online ? s.profile : 'offline') + (route ? ' · ' + route : '');
+  } catch { led.className = 'led down'; statustext.textContent = 'gateway?'; }
+}
+refreshStatus(); setInterval(() => refreshStatus(), 5000);
+
+function bubble(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls; d.textContent = text;
+  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+async function ask() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ''; send.disabled = true;
+  document.querySelector('.hello')?.remove();
+  bubble('msg me', text);
+  history.push({role:'user', content:text});
+  const think = bubble('thinking', '…');
+  try {
+    const r = await fetch('/v1/chat/completions', {method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify({model:'auto', messages:history})});
+    const data = await r.json();
+    think.remove();
+    const answer = data.choices[0].message.content;
+    history.push({role:'assistant', content:answer});
+    bubble('msg bot', answer);
+    const o = data.okada || {};
+    const label = ROUTE_LABEL[o.route] || o.route || '?';
+    bubble('meta', '').innerHTML =
+      `via <b>${label}</b> · ${Math.round(o.total_ms||0)}ms` +
+      (o.fallback_count ? ` · ${o.fallback_count} fallback` : '') +
+      (data.okada_queue_id ? ` · id ${data.okada_queue_id}` : '');
+    refreshStatus(label);
+    if (data.okada_queue_id) pollQueue(data.okada_queue_id);
+  } catch (e) {
+    think.remove();
+    bubble('meta', 'gateway unreachable — is it running on :8080?');
+  }
+  send.disabled = false; input.focus();
+}
+
+async function pollQueue(qid) {
+  const timer = setInterval(async () => {
+    try {
+      const s = await (await fetch('/okada/queue/' + qid)).json();
+      if (s.status === 'completed') {
+        clearInterval(timer);
+        const answer = s.response.choices[0].message.content;
+        history.push({role:'assistant', content:answer});
+        bubble('msg bot', answer);
+        bubble('meta', `queued request ${qid} delivered after reconnect`);
+      }
+    } catch {}
+  }, 3000);
+}
+
+send.onclick = ask;
+input.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+</script>
+</body>
+</html>

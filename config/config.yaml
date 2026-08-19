@@ -26,7 +26,8 @@ models:
     large: claude-sonnet-5
     small: claude-haiku-4-5-20251001
   local:
-    model: qwen2.5:0.5b
+    model: qwen2.5:0.5b                    # ollama fallback backend
+    llamacpp_url: http://127.0.0.1:8081    # preferred backend: llama-server (GGUF)
   mock:
     large: mock-large
     small: mock-small

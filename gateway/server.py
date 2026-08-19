@@ -14,8 +14,11 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from cache.cache import ResponseCache
 from gateway.config import load_config
@@ -64,6 +67,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Okada Router", lifespan=lifespan)
+app.mount("/app", StaticFiles(directory=Path(__file__).resolve().parent.parent / "app", html=True))
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse("/app/")
 
 
 def _queued_response(qid: str, model_hint: str) -> dict:

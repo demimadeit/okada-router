@@ -131,11 +131,14 @@ class RoutingEngine:
             role = self.registry.get(route)
             if not role.provider.available():
                 continue
+            # degraded mode means shorter answers: a CPU-bound local model
+            # generating 512 tokens takes ~40s; 256 keeps it usable
+            rung_max_tokens = min(max_tokens, 256) if role.provider.kind == "local" else max_tokens
             tries = 2 if route == "cloud-large" else 1
             for t in range(tries):
                 t0 = time.perf_counter()
                 try:
-                    resp = await role.provider.chat(messages, role.model, max_tokens, temperature)
+                    resp = await role.provider.chat(messages, role.model, rung_max_tokens, temperature)
                     ms = (time.perf_counter() - t0) * 1000
                     role.provider.health.record_success()
                     result.attempts.append(Attempt(route, role.provider.name, role.model, True, ms))
