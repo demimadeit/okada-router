@@ -1,0 +1,22 @@
+# Safe co-tenancy: run Okada on a server that also hosts OTHER people's
+# production services without starving them.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.shared-host.yml up -d
+#
+# The local model is the dangerous part — llama.cpp will happily pin every
+# core while generating. These caps keep it in its lane. Expect slower local
+# answers; that is the correct trade when someone else's site shares the box.
+
+services:
+  llama:
+    command: >
+      -hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M
+      --host 0.0.0.0 --port 8081 -c 2048 -t 2
+    mem_limit: 2g
+    cpus: 1.5
+    cpu_shares: 256          # yields to normal-priority neighbours
+
+  gateway:
+    mem_limit: 512m
+    cpus: 0.5
+    cpu_shares: 512

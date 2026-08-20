@@ -82,6 +82,28 @@ Week-1 simulation is application-level (latency, loss and outages injected into 
 
 `x-okada-mode: direct` header bypasses all resilience (single attempt, no cache, no fallback) — that is the "naive app" baseline the benchmark compares against. Network conditions are simulated; cloud and local inference are real when keys are set. Measured result (Groq gpt-oss-120b/20b + local Qwen GGUF, 8 requests x 7 profiles): **direct 69.6% answered vs Okada 100%**; offline 0% vs 100%.
 
+## Running alongside other services
+
+If the server also hosts someone else's production workload, cap Okada so the
+local model cannot starve its neighbours:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.shared-host.yml up -d
+```
+
+For a systemd install, the equivalent is a drop-in at
+`/etc/systemd/system/okada.service.d/limits.conf`:
+
+```ini
+[Service]
+MemoryMax=512M
+CPUQuota=50%
+Nice=10
+```
+
+llama.cpp will use every core it is given, so an uncapped local model on a
+shared box is the one genuine risk this project poses to co-tenants.
+
 ## Endpoints
 
 | | |
