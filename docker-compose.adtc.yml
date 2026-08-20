@@ -1,0 +1,18 @@
+# ADTC 8GB-budget run.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.adtc.yml up
+#
+# Caps the whole stack inside the challenge's 8GB target regardless of how
+# much RAM the host actually has, so measurements are honest on any machine.
+# Uses Qwen2.5-3B (Q4_K_M, ~2.4GB) — the model intended for the target box.
+
+services:
+  llama:
+    command: >
+      -hf Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M
+      --host 0.0.0.0 --port 8081 -c 4096
+    mem_limit: 6g
+    cpus: 4.0
+
+  gateway:
+    mem_limit: 1g
