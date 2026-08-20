@@ -12,6 +12,7 @@ routing:
   provider_cooldown_s: 30
   request_timeout_s: 25
   max_tokens_default: 512
+  local_max_tokens: 1200   # cap on the on-device rung
 
 cache:
   ttl_s: 900

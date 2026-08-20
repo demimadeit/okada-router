@@ -132,8 +132,10 @@ class RoutingEngine:
             if not role.provider.available():
                 continue
             # degraded mode means shorter answers: a CPU-bound local model
-            # generating 512 tokens takes ~40s; 256 keeps it usable
-            rung_max_tokens = min(max_tokens, 256) if role.provider.kind == "local" else max_tokens
+            # is slow per token, so cap the local rung (configurable — raise it
+            # for long-form offline work, lower it for snappy chat)
+            local_cap = self.cfg.get("local_max_tokens", 512)
+            rung_max_tokens = min(max_tokens, local_cap) if role.provider.kind == "local" else max_tokens
             tries = 2 if route == "cloud-large" else 1
             for t in range(tries):
                 t0 = time.perf_counter()
