@@ -76,11 +76,11 @@ Week-1 simulation is application-level (latency, loss and outages injected into 
 ### Benchmark & tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 19 tests
+.venv/bin/python -m pytest tests/ -q       # 20 tests
 .venv/bin/python scripts/benchmark.py      # direct cloud vs Okada, per network profile
 ```
 
-`x-okada-mode: direct` header bypasses all resilience (single attempt, no cache, no fallback) — that is the "naive app" baseline the benchmark compares against. Benchmark results are synthetic (simulated network, mock cloud unless keys are set) and are labelled as such.
+`x-okada-mode: direct` header bypasses all resilience (single attempt, no cache, no fallback) — that is the "naive app" baseline the benchmark compares against. Network conditions are simulated; cloud and local inference are real when keys are set. Measured result (Groq gpt-oss-120b/20b + local Qwen GGUF, 8 requests x 7 profiles): **direct 69.6% answered vs Okada 100%**; offline 0% vs 100%.
 
 ## Endpoints
 
@@ -93,13 +93,18 @@ Week-1 simulation is application-level (latency, loss and outages injected into 
 | `GET /okada/queue`, `GET /okada/queue/{id}` | offline queue status / queued result |
 | `GET /okada/health` | provider/route health |
 
-## Honest limitations (week 1)
+## Honest limitations
 
-- Cache is exact-match, single-tenant, no PII handling — not multi-tenant safe yet.
-- Streaming is wrap-of-complete-response, not true incremental relay.
-- Network sensing is simulated or single-probe; no passive RTT/loss estimation yet.
-- No auth, no encryption-at-rest for queue/telemetry, single process.
-- A gateway cannot fix a dead radio link or a powered-off tower — it can only survive them (local model, queue-and-sync). That is the honest scope of the product.
+Done: bearer auth (`OKADA_API_KEY`), real network sensing (continuous probes — set profile `real`), multi-provider failover, Docker install.
+
+Still missing before this is production infrastructure:
+
+- Cache is exact-match and single-tenant, with no PII handling — not safe for multi-tenant use yet.
+- Streaming wraps a complete response rather than relaying tokens incrementally.
+- The offline queue is journaled to disk but not replayed after a restart.
+- No encryption at rest for the queue or telemetry; single process, no tenant isolation.
+- No mobile SDK yet, so end-user phones cannot use the offline route — only machines running Okada themselves can.
+- A gateway cannot fix a dead radio link or an unpowered tower. It can only survive them (local model, queue-and-sync). That is the honest scope of the product.
 
 ## Repository
 
