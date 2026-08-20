@@ -30,7 +30,21 @@ Routing is driven by **network conditions** (latency, packet loss, offline), not
 
 Every request returns an `okada` block (route, reason, network state, fallback/retry counts) and writes one JSONL telemetry line — the seed of the routing dataset.
 
-## Quickstart
+## Quickstart — Docker (one command)
+
+```bash
+GROQ_API_KEY=gsk_your_key docker compose up
+```
+
+That starts the gateway *and* a local llama.cpp model. Open
+<http://localhost:8080> for the demo app, or point any OpenAI client at
+`http://localhost:8080/v1`. The model downloads once into a volume; after
+that the offline route works with no internet at all. Any of
+`GROQ_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
+works — the first one found becomes the primary cloud, the second becomes
+automatic failover. Set `OKADA_API_KEY` to require auth on a public deployment.
+
+## Quickstart — from source
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt

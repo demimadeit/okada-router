@@ -117,7 +117,8 @@ def build_registry(cfg: dict) -> Registry:
         reg.roles["alternate"] = Role(cloud[1][0], cloud[1][1])
 
     local = LocalChainProvider(
-        llamacpp_url=models["local"].get("llamacpp_url", "http://127.0.0.1:8081"),
+        llamacpp_url=os.getenv("OKADA_LLAMACPP_URL",
+                               models["local"].get("llamacpp_url", "http://127.0.0.1:8081")),
         ollama_model=models["local"]["model"],
     )
     reg.roles["local"] = Role(local, models["local"]["model"])
