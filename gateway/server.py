@@ -37,6 +37,11 @@ simulator.set_profile(cfg["network"]["default_profile"])
 registry = build_registry(cfg)
 engine = RoutingEngine(registry, cfg["routing"])
 monitor = NetworkMonitor(simulator)
+# probe the path to each configured provider, not just "the internet"
+for _route, _role in registry.roles.items():
+    _base = getattr(_role.provider, "base_url", None)
+    if _base and _role.provider.kind == "cloud":
+        monitor.register_provider(_role.provider.name, _base)
 cache = ResponseCache(cfg["cache"]["ttl_s"], cfg["cache"]["max_entries"])
 telemetry = Telemetry()
 queue = QueueStore()

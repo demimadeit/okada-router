@@ -95,7 +95,8 @@ class RoutingEngine:
             return Decision(
                 "cloud-small",
                 f"network degraded ({state.latency_ms:.0f}ms, "
-                f"{state.packet_loss:.0%} loss); smaller model cuts transfer + cost",
+                f"{state.packet_loss:.0%} loss); smaller model + capped response "
+                f"(lower cost, fewer response bytes; prompt unchanged)",
             )
 
         return Decision("cloud-large", "network healthy")
@@ -131,11 +132,18 @@ class RoutingEngine:
             role = self.registry.get(route)
             if not role.provider.available():
                 continue
-            # degraded mode means shorter answers: a CPU-bound local model
-            # is slow per token, so cap the local rung (configurable — raise it
-            # for long-form offline work, lower it for snappy chat)
-            local_cap = self.cfg.get("local_max_tokens", 512)
-            rung_max_tokens = min(max_tokens, local_cap) if role.provider.kind == "local" else max_tokens
+            # Byte reduction has to be DONE, not assumed. Switching to a
+            # smaller model lowers cost per token but does not by itself send
+            # fewer bytes — the prompt is unchanged and the reply may be just
+            # as long. So degraded rungs carry an explicit response cap, which
+            # is the part that actually shrinks the transfer.
+            if role.provider.kind == "local":
+                cap = self.cfg.get("local_max_tokens", 512)
+            elif route in ("cloud-small", "alternate"):
+                cap = self.cfg.get("degraded_max_tokens", 300)
+            else:
+                cap = max_tokens
+            rung_max_tokens = min(max_tokens, cap)
             tries = 2 if route == "cloud-large" else 1
             for t in range(tries):
                 t0 = time.perf_counter()

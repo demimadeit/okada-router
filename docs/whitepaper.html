@@ -110,7 +110,7 @@
 <div class="wrap">
 
 <div class="masthead">
-  <p class="eyebrow">Technical whitepaper · v1.0</p>
+  <p class="eyebrow">Technical whitepaper · v1.1 — revised after external review</p>
   <h1>The Okada Protocol</h1>
   <p class="sub">How an AI gateway keeps answering when the network, the provider, or the power fails — and what that is worth to a company that runs on unreliable infrastructure.</p>
   <p class="byline">okada-router · August 2026 · github.com/demimadeit/okada-router</p>
@@ -126,8 +126,8 @@
 
 <div class="stats">
   <div class="stat"><span class="n">27,000+</span><span class="l">fibre cuts in Nigeria, Jan–Nov 2025 (NCC)</span></div>
-  <div class="stat"><span class="n">~190</span><span class="l">days per year of grid downtime (World Bank)</span></div>
-  <div class="stat"><span class="n">~104ms</span><span class="l">best-case Lagos→London floor; no AI inference on the continent</span></div>
+  <div class="stat"><span class="n">~190</span><span class="l">days/yr of firm-level power downtime — Nigeria topped the World Bank Enterprise Survey 2024, as reported by Guardian NG</span></div>
+  <div class="stat"><span class="n">~104ms</span><span class="l">best-case Lagos→London RTT floor; frontier models are served from the US/EU</span></div>
   <div class="stat"><span class="n">2×</span><span class="l">rise in the price of 1GB of mobile data, 2023→2025</span></div>
 </div>
 
@@ -235,7 +235,8 @@
 </figure>
 
 <h3>Network sensing</h3>
-<p>A background loop probes two well-known endpoints every three seconds and keeps a ten-sample window. Latency is the median of successful probes, packet loss is the failure fraction of the window, and the link counts as down when none of the last three probes succeeded. In live testing, physically switching off a laptop's WiFi was detected in <strong>about six seconds</strong>, with no human input.</p>
+<p>A background loop probes on a three-second rotation and keeps a ten-sample window per target. Two classes of target are measured separately, because they answer different questions: <strong>generic anycast endpoints</strong> establish whether the last mile is alive at all, and <strong>each configured provider's own endpoint</strong> establishes whether the path to that specific inference provider is healthy. A healthy route to Google implies nothing about the route to a model provider — different transit, different submarine path, different POP. Measured on one laptop at one moment: generic internet 97ms, path to the model provider 249ms. Physically switching off WiFi was detected in <strong>about six seconds</strong>, with no human input.</p>
+<p class="note">This is still coarse. Production-grade sensing would ingest carrier, ASN, cell site, route, RTT per provider, DNS and TLS setup time, and historical performance by time of day — which is also precisely what turns the telemetry into a moat rather than a log file.</p>
 
 <h3>The decision</h3>
 <p>Routing is a deterministic policy — first match wins. Rules are used rather than a learned model on purpose: a rule can be explained to a customer, debugged at 2am, and it produces the labelled decision log that a learned policy would later need as training data.</p>
@@ -245,17 +246,22 @@
 <span class="k">if</span> offline                        → device model <span class="c"># else queue</span>
 <span class="k">if</span> primary provider unhealthy     → alternate provider
 <span class="k">if</span> latency &gt; 2500ms or loss &gt; 25% → device model <span class="c"># beats a retry storm</span>
-<span class="k">if</span> latency &gt; 600ms  or loss &gt; 5%  → small cloud model
+<span class="k">if</span> latency &gt; 600ms  or loss &gt; 5%  → small cloud model + response cap
 <span class="k">else</span>                              → full cloud model</pre>
 
 <p>The chosen rung is the <em class="term">start</em> of a chain, not a final answer. If it fails mid-request, execution walks downward — full model to small model to alternate provider to device to queue — so a failure degrades the answer instead of destroying it.</p>
 
+<h3>What actually reduces bytes</h3>
+<p>A claim worth stating carefully, because the intuitive version is false: <strong>switching to a smaller model does not by itself send fewer bytes.</strong> The prompt is unchanged, the API envelope is unchanged, and a smaller model can emit just as many output tokens. The model swap buys cost per token, not transfer.</p>
+<p>So the degraded rungs carry an explicit <em class="term">response cap</em> — that is the mechanism that actually shrinks the payload, and it is what the router applies today. Genuine bandwidth engineering — prompt and context compression, request deduplication, protocol-level compression, and a binary transport on the leg where Okada controls both ends — is roadmap, not shipped. Streamed responses carry roughly five to twenty-five times the bytes of the text they deliver, so that leg is where the remaining savings live.</p>
+
 <h3>Why the bottom rung matters</h3>
-<p>The queue is what makes the guarantee absolute. Cloud rungs can fail, the device model can be missing, but writing a request to disk requires no network and no model. It is replayed automatically when connectivity returns and the result is retrievable by id. <strong>There is no path through the system that ends in "sorry, try again."</strong></p>
+<p>The queue is the last rung because writing a request to disk requires no network and no model. It is replayed when connectivity returns and the result is retrievable by id.</p>
+<p>State this precisely, because the loose version is wrong: <strong>a queued request is not an answered request.</strong> The correct claim is that requests are <em>answered, degraded, or durably accepted for later execution</em> — never silently dropped and never returned as a bare failure. Today the queue survives a network outage but not a process restart, so even "durable" carries an asterisk until that is fixed.</p>
 
 <h2><span class="num">03</span>What was measured</h2>
 
-<p>Two experiments, both reproducible from the public repository.</p>
+<p>Two experiments, both reproducible from the public repository. Read them as <strong>engineering evidence that the routing works, not as market statistics</strong>: 56 requests against a simulated network is a demo benchmark. It shows the mechanism behaves as designed under controlled degradation. It does not establish production reliability, and the numbers below should not be quoted as what Okada delivers on a real carrier.</p>
 
 <h3>Resilience benchmark</h3>
 <p>Identical requests sent two ways under identical simulated network conditions: once as a naive direct provider call, once through Okada. Cloud inference is real (Groq <em class="term">gpt-oss-120b</em> / <em class="term">gpt-oss-20b</em>); device inference is real (Qwen2.5-1.5B Q4 via llama.cpp). Eight requests per cell.</p>
@@ -359,6 +365,17 @@
 <p>It is the record. Every request writes one line: the network state observed, the decision made, the reason, each attempt and its outcome. Multiplied across carriers, cities and hours, that becomes something no competitor can copy without occupying the same position — <strong>knowledge of which route will succeed before the request is sent.</strong> A router that knows a given network degrades every evening at seven can move traffic <em>before</em> the failure rather than after it.</p>
 
 <p>The second asset is the transport layer. Streamed AI responses carry five to twenty-five times more bytes than the text they deliver, because of protocol framing. A gateway that controls both ends of the connection can re-encode that traffic. In a market where the price of data doubled in two years, saving most of it is not an optimisation — it is the reason a company adopts you.</p>
+
+<h2><span class="num">08</span>Corrections in this revision</h2>
+<p>This version was revised after external technical review. The changes are listed because a whitepaper that quietly edits its own claims is worth less than one that shows them:</p>
+<div class="caveat">
+<p><strong>Sourcing tightened.</strong> The ~190-day power downtime figure is Nigeria's, and Nigeria did top the World Bank Enterprise Survey on this measure — but it was cited here as if taken from a primary World Bank document when the accessible source is secondary reporting. Now attributed precisely.</p>
+<p><strong>Claim removed.</strong> "No AI inference on the continent" was too broad and is withdrawn: Bedrock exposes a Cape Town endpoint and Cloudflare has deployed Workers AI GPUs in Lagos. The defensible statement is narrower — frontier models are served from the US and EU, so a Lagos request still crosses a submarine cable.</p>
+<p><strong>Reliability language corrected.</strong> "No path ends in try again" overstated it. A queued request is not an answered request, and the queue does not yet survive a restart.</p>
+<p><strong>Benchmark reframed.</strong> 56 simulated requests is engineering evidence, not a market statistic, and is now labelled as such.</p>
+<p><strong>Bandwidth mechanism fixed in code.</strong> The routing reason previously claimed a smaller model "cuts transfer". It now applies an explicit response cap, which is the thing that actually does.</p>
+<p><strong>Sensing deepened in code.</strong> Probing generic endpoints was insufficient; each provider's own path is now measured separately. First measurement on one machine: 97ms to a generic endpoint, 249ms to the model provider.</p>
+</div>
 
 <p class="foot">Okada Router · open source at <a href="https://github.com/demimadeit/okada-router">github.com/demimadeit/okada-router</a> · all figures in section 03 are reproducible via <em class="term">scripts/benchmark.py</em> · Okada: the Lagos motorbike taxi that gets through when the road is blocked.</p>
 
