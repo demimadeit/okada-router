@@ -125,10 +125,10 @@
 <p>In markets where that line is unreliable, the failure is not an edge case, it is the daily condition:</p>
 
 <div class="stats">
-  <div class="stat"><span class="n">27,000+</span><span class="l">fibre cuts in Nigeria, Jan–Nov 2025 (NCC)</span></div>
-  <div class="stat"><span class="n">~190</span><span class="l">days/yr of firm-level power downtime — Nigeria topped the World Bank Enterprise Survey 2024, as reported by Guardian NG</span></div>
-  <div class="stat"><span class="n">~104ms</span><span class="l">best-case Lagos→London RTT floor; frontier models are served from the US/EU</span></div>
-  <div class="stat"><span class="n">2×</span><span class="l">rise in the price of 1GB of mobile data, 2023→2025</span></div>
+  <div class="stat"><span class="n">27,000+</span><span class="l">fibre cuts in Nigeria, Jan–Nov 2025, and 5,000+ more in H1 2026 (NCC)</span></div>
+  <div class="stat"><span class="n">82.5%</span><span class="l">of Nigerian firms report frequent power outages (World Bank Enterprise Survey 2025)</span></div>
+  <div class="stat"><span class="n">18.5%</span><span class="l">of tests on Nigeria's best mobile network meet "consistent quality" (Opensignal, July 2026); 36% of lines are still 2G (NCC, Aug 2026)</span></div>
+  <div class="stat"><span class="n">+50%</span><span class="l">regulator-approved rise in the 1GB data price cap in one decision (NCC, Jan 2025: ₦287.50 → ₦431.25)</span></div>
 </div>
 
 <p>Three distinct things break, and they break independently: <strong>the user's link</strong> (radio congestion, fibre cut, dead tower), <strong>the provider</strong> (outage, rate limit, a model quietly retired), and <strong>the budget</strong> (data costs money per megabyte). A retry loop addresses none of them. It just fails more expensively.</p>
@@ -257,7 +257,7 @@
 
 <h3>Why the bottom rung matters</h3>
 <p>The queue is the last rung because writing a request to disk requires no network and no model. It is replayed when connectivity returns and the result is retrievable by id.</p>
-<p>State this precisely, because the loose version is wrong: <strong>a queued request is not an answered request.</strong> The correct claim is that requests are <em>answered, degraded, or durably accepted for later execution</em> — never silently dropped and never returned as a bare failure. Today the queue survives a network outage but not a process restart, so even "durable" carries an asterisk until that is fixed.</p>
+<p>State this precisely, because the loose version is wrong: <strong>a queued request is not an answered request.</strong> The correct claim is that requests are <em>answered, degraded, or durably accepted for later execution</em> — never silently dropped and never returned as a bare failure. As of the October 2026 revision the queue is a SQLite outbox: it survives a process restart and a power cut, deduplicates client retries with idempotency keys, and is encrypted at rest when a key is configured — so "durably accepted" now means what it says.</p>
 
 <h2><span class="num">03</span>What was measured</h2>
 
@@ -350,9 +350,9 @@
 <h2><span class="num">06</span>What is not yet true</h2>
 
 <div class="caveat">
-  <p><strong>The cache is exact-match and single-tenant.</strong> No semantic matching, no PII handling. Not safe for multi-tenant use.</p>
-  <p><strong>Streaming is not incremental.</strong> Responses are delivered complete rather than token by token, which costs perceived speed on slow links.</p>
-  <p><strong>The queue is journaled but not replayed after a restart.</strong> Durable across a network outage, not yet across a power cut.</p>
+  <p><strong>The cache is exact-match.</strong> It is namespaced per tenant now, but there is no semantic matching and no PII scrubbing before caching or logging.</p>
+  <p><strong>Local-language quality is unmeasured.</strong> The default 1.5B model is English-and-Swahili class; Hausa, Yoruba and Igbo need a 3–4B model and an evaluation set that does not exist yet.</p>
+  <p><strong>No mobile SDK and no messaging channel.</strong> Only machines running Okada get the offline rung; a feature phone cannot yet receive a queued answer over WhatsApp or SMS.</p>
   <p><strong>No encryption at rest, no tenant isolation.</strong> Both are prerequisites before any customer's data touches a shared deployment.</p>
   <p><strong>No mobile SDK.</strong> Today only machines running Okada themselves get the offline path.</p>
   <p><strong>A gateway cannot fix a dead radio link or an unpowered tower.</strong> It can only survive them. That is the honest boundary of what is being claimed.</p>
@@ -364,7 +364,7 @@
 
 <p>It is the record. Every request writes one line: the network state observed, the decision made, the reason, each attempt and its outcome. Multiplied across carriers, cities and hours, that becomes something no competitor can copy without occupying the same position — <strong>knowledge of which route will succeed before the request is sent.</strong> A router that knows a given network degrades every evening at seven can move traffic <em>before</em> the failure rather than after it.</p>
 
-<p>The second asset is the transport layer. Streamed AI responses carry five to twenty-five times more bytes than the text they deliver, because of protocol framing. A gateway that controls both ends of the connection can re-encode that traffic. In a market where the price of data doubled in two years, saving most of it is not an optimisation — it is the reason a company adopts you.</p>
+<p>The second asset is the transport layer. Streamed AI responses carry five to twenty-five times more bytes than the text they deliver, because of protocol framing. A gateway that controls both ends of the connection can re-encode that traffic. In a market where the regulator raised the data price cap by half in a single decision, saving most of it is not an optimisation — it is the reason a company adopts you.</p>
 
 <h2><span class="num">08</span>Corrections in this revision</h2>
 <p>This version was revised after external technical review. The changes are listed because a whitepaper that quietly edits its own claims is worth less than one that shows them:</p>
@@ -375,6 +375,18 @@
 <p><strong>Benchmark reframed.</strong> 56 simulated requests is engineering evidence, not a market statistic, and is now labelled as such.</p>
 <p><strong>Bandwidth mechanism fixed in code.</strong> The routing reason previously claimed a smaller model "cuts transfer". It now applies an explicit response cap, which is the thing that actually does.</p>
 <p><strong>Sensing deepened in code.</strong> Probing generic endpoints was insufficient; each provider's own path is now measured separately. First measurement on one machine: 97ms to a generic endpoint, 249ms to the model provider.</p>
+</div>
+<h3>Revision of October 2026</h3>
+<p>A second review, two months later, went back to the sources behind every headline number and to what had changed in the market since August.</p>
+<div class="caveat">
+<p><strong>"~190 days a year of power downtime" withdrawn.</strong> The previous revision re-attributed it; this one could not find it in any World Bank Enterprise Survey table at all. Replaced with what the 2025 survey does say: 82.5% of Nigerian firms report frequent outages (the 2014 round measured 32.8 outages a month).</p>
+<p><strong>"Data doubled in price" corrected.</strong> The documented event is a 50% rise in the NCC-approved 1GB cap in January 2025 (₦287.50 → ₦431.25). Street prices moved less. No further regulator hike has been found in 2026.</p>
+<p><strong>"~104ms Lagos→London floor" dropped.</strong> No 2026 measurement supports a specific floor; published averages to Lagos in 2026 range from about 115ms to 168ms. The defensible claim is only that frontier models are served from the US and EU, so every Lagos request crosses a submarine cable.</p>
+<p><strong>Fibre-cut figure dated and extended.</strong> 27,000+ is Jan–Nov 2025; the NCC reported a further 5,000+ cuts in the first half of 2026. The two periods are not directly comparable.</p>
+<p><strong>Queue made durable in code.</strong> The earlier asterisk is gone: requests and results are stored in SQLite, replayed after a restart, deduplicated by idempotency key, and encrypted at rest when a key is set.</p>
+<p><strong>Streaming made real in code.</strong> Tokens are relayed as the provider emits them, and if a stream dies mid-answer the next rung continues from the partial text instead of starting over.</p>
+<p><strong>Model liveness added in code.</strong> Groq retired model families on 16 August and 14 September 2026 while path probes stayed green. The gateway now sends a one-token real completion per configured model on a timer, and a model that answers "not found" is routed around without blaming its provider.</p>
+<p><strong>Supply chain pinned.</strong> After the LiteLLM 1.107.0 compromise of 24 October 2026, every dependency and the llama.cpp image are pinned to exact versions.</p>
 </div>
 
 <p class="foot">Okada Router · open source at <a href="https://github.com/demimadeit/okada-router">github.com/demimadeit/okada-router</a> · all figures in section 03 are reproducible via <em class="term">scripts/benchmark.py</em> · Okada: the Lagos motorbike taxi that gets through when the road is blocked.</p>

@@ -7,10 +7,14 @@
 #
 # The local model downloads once (~1GB) into a named volume, after which
 # the 'local' route works with no internet at all.
+#
+# The llama.cpp image is PINNED to a build tag. `latest`/`server` floats, and
+# llama.cpp v0.7.0 (Oct 2026) changed llama-server defaults (port 8080 -> 9931,
+# output format, slot/session files). Bump the tag on purpose, test, commit.
 
 services:
   llama:
-    image: ghcr.io/ggml-org/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server-b11870
     command: >
       -hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M
       --host 0.0.0.0 --port 8081 -c 4096
@@ -28,10 +32,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OKADA_API_KEY: ${OKADA_API_KEY:-}
+      OKADA_KEYS_FILE: ${OKADA_KEYS_FILE:-}
+      OKADA_QUEUE_KEY: ${OKADA_QUEUE_KEY:-}
+      OKADA_FREE_TIER_PROVIDERS: ${OKADA_FREE_TIER_PROVIDERS:-groq,gemini,openrouter}
+    volumes:
+      - okada-logs:/app/logs        # queue.sqlite + telemetry survive container restarts
     depends_on:
       - llama
     restart: unless-stopped
 
 volumes:
   okada-models:
+  okada-logs:

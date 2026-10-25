@@ -1,0 +1,21 @@
+# OPT-IN local-model upgrade: Qwen3.5 (released Mar 2026, Apache-2.0) with
+# multi-token-prediction speculative decoding — the largest CPU throughput
+# win available without a GPU, per llama.cpp v0.6/v0.7 release notes.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.qwen35.yml up
+#
+# NOT YET VERIFIED on this project's hardware. Before relying on it:
+#   1. confirm the GGUF repo/filename exists:  https://huggingface.co/unsloth/Qwen3.5-4B-GGUF
+#   2. confirm the flag names for your pinned llama.cpp build:
+#        docker run --rm ghcr.io/ggml-org/llama.cpp:server-b11870 --help | grep -i spec
+#   3. run scripts/measure_local.py and compare tok/s against the default compose
+# Use the 2B variant on 8GB boxes that must also run a browser; 4B is the
+# floor for Hausa/Yoruba/Igbo quality (see docs/ROADMAP-2026-10.md).
+
+services:
+  llama:
+    command: >
+      -hf unsloth/Qwen3.5-4B-GGUF:Q4_K_M
+      --host 0.0.0.0 --port 8081 -c 4096
+      --spec-type draft-mtp
+      --cache-reuse 256

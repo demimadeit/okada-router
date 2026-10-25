@@ -1,8 +1,10 @@
+# Base image pinned by tag; pin to a digest once you have pulled it:
+#   docker pull python:3.11-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.11-slim
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY gateway/ gateway/
 COPY providers/ providers/

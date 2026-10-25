@@ -1,18 +1,24 @@
 # Okada Router — ADTC 2026 Gate 1 Report
 
-> **Status: DRAFT for the Aug 25 Gate 1 submission.** Items marked ⏳ need a
-> run on the actual 8GB Ubuntu target before submission. Do not submit
-> numbers measured only on the development Mac.
+> **Status: historical.** This was the Gate 1 submission draft (deadline 25 Aug
+> 2026). The Africa Deep Tech Challenge 2026 concluded on 19 Oct 2026 and Okada
+> Router was not among the published finalists. The document is kept as the
+> record of what was claimed at the time; the figures in section 1 were
+> corrected in Oct 2026 (see `docs/ROADMAP-2026-10.md` and the whitepaper's
+> corrections log). Items marked ⏳ were never completed.
 
 ## 1. Problem definition
 
 AI applications assume `app → stable internet → cloud API → response`. In
 Nigeria that assumption fails daily: the NCC recorded **27,000+ fibre cuts
-Jan–Nov 2025** (~75/day), the World Bank measures **~190 days/year of grid
-downtime**, 1GB of mobile data roughly **doubled in price 2023→2025**, and
-there is **no frontier-model inference capacity anywhere on the continent**
-— every request crosses a submarine cable (~104ms Lagos→London floor). When
-the link degrades, every AI app shows a spinner and dies.
+Jan–Nov 2025** (~75/day) and 5,000+ more in H1 2026; **82.5% of firms report
+frequent power outages** (World Bank Enterprise Survey 2025); the NCC approved
+a **50% rise in the 1GB data price cap** in Jan 2025; and frontier models are
+served from the US and EU, so every Lagos request crosses a submarine cable.
+(Earlier drafts said "~190 days/year of grid downtime", "data doubled in
+price", "no inference capacity on the continent" and "~104ms floor" — none of
+those survived source-checking and they are withdrawn.) When the link
+degrades, every AI app shows a spinner and dies.
 
 Okada Router makes AI answer anyway. It is an OpenAI-compatible gateway
 that routes each request down a degradation ladder — cloud model → smaller

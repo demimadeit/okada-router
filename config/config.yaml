@@ -15,31 +15,45 @@ routing:
   local_max_tokens: 1200     # cap on the on-device rung
   degraded_max_tokens: 300   # response cap on degraded cloud rungs — this,
                              # not the model swap, is what cuts wire bytes
+  model_probe_interval_s: 300  # real one-token completion per cloud model;
+                               # catches retired models that path probes miss
+                               # (disable with OKADA_MODEL_PROBE=0)
 
 cache:
   ttl_s: 900
   max_entries: 512
 
+queue:
+  retention_s: 86400         # completed/failed results are deleted after this
+  max_attempts: 50           # then the item is marked failed, not retried forever
+  # encryption at rest: set OKADA_QUEUE_KEY (64 hex chars, or any passphrase)
+
 models:
-  # used when the matching API key is present in the environment
+  # used when the matching API key is present in the environment.
+  # Model IDs rot: Groq retired two families in Aug–Sep 2026 with ~30 days'
+  # notice. Run `scripts/check_models.py` after any provider announcement; the
+  # gateway also probes each model with a real completion every
+  # model_probe_interval_s and routes around any that answer "not found".
   openai:
     large: gpt-4o
     small: gpt-4o-mini
   anthropic:
-    large: claude-sonnet-5
-    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-5-5
+    small: claude-haiku-5-5
   groq:
-    large: openai/gpt-oss-120b
+    large: openai/gpt-oss-120b     # free tier ~1,000 req/day (verify on console.groq.com)
     small: openai/gpt-oss-20b
   gemini:
     large: gemini-2.5-flash
-    small: gemini-2.5-flash-lite
+    small: gemini-2.5-flash-lite   # free tier; 3.5 Flash-Lite exists — confirm the ID via check_models
   openrouter:
     large: openrouter/auto
-    small: meta-llama/llama-3.1-8b-instruct
+    small: openai/gpt-oss-20b
   local:
-    model: qwen2.5:0.5b                    # ollama fallback backend
-    llamacpp_url: http://127.0.0.1:8081    # preferred backend: llama-server (GGUF)
+    model: qwen2.5:0.5b                    # ollama fallback backend only
+    llamacpp_url: http://127.0.0.1:8081    # canonical backend: llama-server (GGUF).
+                                           # llama-server's own default moved to 9931 in
+                                           # v0.7.0; the gateway also tries 9931 and 8080.
   mock:
     large: mock-large
     small: mock-small

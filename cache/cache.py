@@ -1,10 +1,14 @@
-"""Exact-match response cache (week 1).
+"""Exact-match response cache.
 
-Key = hash of the normalised message list. TTL-bounded, LRU-evicted.
-Semantic caching (embedding similarity) is deliberately week 2+: it needs an
-embedding model, a similarity threshold study, and careful freshness/privacy
-rules before it is safe to ship. Cached entries are single-tenant here —
-multi-tenant namespacing must land before any shared deployment.
+Key = hash of (namespace, normalised message list). The namespace is the
+tenant id, so two tenants asking the same question never see each other's
+answers; the system prompt is part of the message list, so a different
+system prompt is a different key. TTL-bounded, LRU-evicted.
+
+Semantic caching (embedding similarity) is deliberately not here yet: it
+needs an embedding model on CPU, a similarity-threshold study per workload,
+and a cache-poisoning threat model before it is safe to share across
+tenants. PII scrubbing before caching is the other open item.
 """
 import hashlib
 import json
@@ -21,12 +25,12 @@ class ResponseCache:
         self.misses = 0
 
     @staticmethod
-    def key(messages: list) -> str:
+    def key(messages: list, namespace: str = "default") -> str:
         norm = [(m.get("role"), (m.get("content") or "").strip()) for m in messages]
-        return hashlib.sha256(json.dumps(norm, ensure_ascii=False).encode()).hexdigest()
+        return hashlib.sha256(json.dumps([namespace, norm], ensure_ascii=False).encode()).hexdigest()
 
-    def get(self, messages: list):
-        k = self.key(messages)
+    def get(self, messages: list, namespace: str = "default"):
+        k = self.key(messages, namespace)
         item = self._store.get(k)
         if item is None:
             self.misses += 1
@@ -40,8 +44,8 @@ class ResponseCache:
         self.hits += 1
         return resp
 
-    def set(self, messages: list, response: dict):
-        k = self.key(messages)
+    def set(self, messages: list, response: dict, namespace: str = "default"):
+        k = self.key(messages, namespace)
         self._store[k] = (time.time(), response)
         self._store.move_to_end(k)
         while len(self._store) > self.max_entries:

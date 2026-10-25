@@ -8,7 +8,7 @@ import uuid
 
 import httpx
 
-from gateway.providers import Provider, ProviderError
+from gateway.providers import Provider, ProviderError, classify_http_error
 
 OLLAMA = "http://127.0.0.1:11434"
 _AVAILABILITY_TTL_S = 15
@@ -47,7 +47,7 @@ class OllamaProvider(Provider):
         except httpx.HTTPError as e:
             raise ProviderError(f"ollama transport error: {e}") from e
         if r.status_code != 200:
-            raise ProviderError(f"ollama {r.status_code}: {r.text[:200]}")
+            raise classify_http_error("ollama", r.status_code, r.text)
         data = r.json()
         text = data.get("message", {}).get("content", "")
         return {

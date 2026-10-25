@@ -1,10 +1,9 @@
-import os
 import time
 import uuid
 
 import httpx
 
-from gateway.providers import Provider, ProviderError
+from gateway.providers import Provider, ProviderError, classify_http_error, resolve_upstream_key
 from network.simulator import simulator
 
 
@@ -19,7 +18,7 @@ class AnthropicProvider(Provider):
         self.base_url = base_url
 
     def available(self) -> bool:
-        return bool(os.getenv("ANTHROPIC_API_KEY"))
+        return bool(resolve_upstream_key("anthropic", "ANTHROPIC_API_KEY"))
 
     async def chat(self, messages, model, max_tokens, temperature) -> dict:
         system = "\n".join(m["content"] for m in messages if m["role"] == "system")
@@ -38,7 +37,7 @@ class AnthropicProvider(Provider):
                 r = await client.post(
                     f"{self.base_url}/v1/messages",
                     headers={
-                        "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+                        "x-api-key": resolve_upstream_key("anthropic", "ANTHROPIC_API_KEY") or "",
                         "anthropic-version": "2023-06-01",
                     },
                     json=payload,
@@ -46,7 +45,7 @@ class AnthropicProvider(Provider):
         except httpx.HTTPError as e:
             raise ProviderError(f"anthropic transport error: {e}") from e
         if r.status_code != 200:
-            raise ProviderError(f"anthropic {r.status_code}: {r.text[:200]}")
+            raise classify_http_error("anthropic", r.status_code, r.text)
         data = r.json()
         text = "".join(b.get("text", "") for b in data.get("content", []))
         usage = data.get("usage", {})

@@ -1,0 +1,21 @@
+# Virtual keys. Copy to config/keys.yaml (gitignored) and set
+#   OKADA_KEYS_FILE=config/keys.yaml
+# Each key is one tenant. Budgets are enforced against est_cost_usd, which is
+# zero for providers listed in OKADA_FREE_TIER_PROVIDERS.
+keys:
+  - key: ok_live_change_me_1
+    tenant: demo-shop
+    max_budget_usd: 2.00
+    budget_duration: daily          # daily | monthly | total
+    degraded_max_tokens: 200
+
+  - key: ok_live_change_me_2
+    tenant: clinic-no-offshore
+    no_offshore: true               # cache / local / queue only — prompts never leave the box
+    degraded_max_tokens: 400
+
+  - key: ok_live_change_me_3
+    tenant: byo-key-customer
+    models_allowed: [openai/gpt-oss-20b, openai/gpt-oss-120b]
+    upstream_keys:
+      groq: gsk_their_own_key       # billed to them, not to the pooled key
