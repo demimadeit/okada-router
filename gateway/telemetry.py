@@ -90,14 +90,104 @@ def _sha(obj) -> str:
     return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
+HISTORY_DAYS = 7
+HISTORY_MAX = 100_000
+
+
 class Telemetry:
-    def __init__(self, path: Path | None = None, feedback_path: Path | None = None):
+    def __init__(self, path: Path | None = None, feedback_path: Path | None = None,
+                 load_history: bool = True):
         self.path = path or (LOG_DIR / "telemetry.jsonl")
         self.feedback_path = feedback_path or (LOG_DIR / "feedback.jsonl")
         self.path.parent.mkdir(exist_ok=True, parents=True)
         self.records: list[dict] = []
         self._by_id: dict[str, dict] = {}
         self._recent: deque = deque(maxlen=2000)   # (ts, tenant, last_user_sha, request_id)
+        self.loaded_from_disk = 0
+        if load_history:
+            self._load_history()
+
+    def _load_history(self):
+        """Console dashboards need history across restarts: reload the last
+        HISTORY_DAYS of records from the JSONL (bounded)."""
+        if not self.path.exists():
+            return
+        cutoff = time.time() - HISTORY_DAYS * 86400
+        keep: deque = deque(maxlen=HISTORY_MAX)
+        with open(self.path) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get("ts", 0) >= cutoff and "final_route" in r:
+                    r.setdefault("tenant", "default")
+                    r.setdefault("lang", "und")
+                    r.setdefault("list_cost_usd", r.get("est_cost_usd", 0.0))
+                    r.setdefault("est_cost_usd", 0.0)
+                    r.setdefault("resumed", 0)
+                    r.setdefault("reask_of", None)
+                    r.setdefault("quality", None)
+                    keep.append(r)
+        self.records = list(keep)
+        self._by_id = {r["request_id"]: r for r in self.records if "request_id" in r}
+        self.loaded_from_disk = len(self.records)
+
+    # ---- console queries -----------------------------------------------------
+    def _for(self, tenant: str | None, since: float):
+        return [r for r in self.records if r["ts"] >= since and (tenant is None or r["tenant"] == tenant)]
+
+    def series(self, tenant: str | None, since: float, bucket_s: int = 3600) -> list[dict]:
+        """Per-bucket counts by route, answered rate, p50 latency, cost."""
+        buckets: dict[int, dict] = {}
+        for r in self._for(tenant, since):
+            b = int(r["ts"] // bucket_s * bucket_s)
+            e = buckets.setdefault(b, {"t": b, "requests": 0, "answered": 0, "routes": {},
+                                       "lat": [], "est_cost_usd": 0.0, "list_cost_usd": 0.0,
+                                       "fallbacks": 0})
+            e["requests"] += 1
+            e["answered"] += 1 if r["success"] else 0
+            e["routes"][r["final_route"]] = e["routes"].get(r["final_route"], 0) + 1
+            e["lat"].append(r["total_ms"])
+            e["est_cost_usd"] += r["est_cost_usd"]
+            e["list_cost_usd"] += r["list_cost_usd"]
+            e["fallbacks"] += r["fallback_count"]
+        out = []
+        for b in sorted(buckets):
+            e = buckets[b]
+            lat = sorted(e.pop("lat"))
+            e["p50_ms"] = round(median(lat), 1) if lat else 0
+            e["p95_ms"] = round(lat[max(0, int(len(lat) * 0.95) - 1)], 1) if lat else 0
+            e["answered_rate"] = round(e["answered"] / e["requests"], 3)
+            e["est_cost_usd"] = round(e["est_cost_usd"], 6)
+            e["list_cost_usd"] = round(e["list_cost_usd"], 6)
+            out.append(e)
+        return out
+
+    def summary_for(self, tenant: str | None, since: float) -> dict:
+        saved = self.records
+        try:
+            self.records = self._for(tenant, since)
+            return self.summary()
+        finally:
+            self.records = saved
+
+    def recent(self, tenant: str | None, n: int = 50) -> list[dict]:
+        """Latest requests for the console table — never any prompt text."""
+        rows = [r for r in reversed(self.records) if tenant is None or r["tenant"] == tenant][:n]
+        return [{"ts": r["ts"], "request_id": r["request_id"], "route": r["final_route"],
+                 "decision": r["decision"].get("route") if isinstance(r["decision"], dict) else None,
+                 "reason": r["decision"].get("reason", "") if isinstance(r["decision"], dict) else "",
+                 "model": r.get("model", ""), "provider": r.get("provider", ""),
+                 "total_ms": r["total_ms"], "success": r["success"], "queued": r["queued"],
+                 "cache_hit": r["cache_hit"], "fallback_count": r["fallback_count"],
+                 "retry_count": r["retry_count"], "lang": r["lang"],
+                 "prompt_tokens": r.get("prompt_tokens", 0),
+                 "completion_tokens": r.get("completion_tokens", 0),
+                 "est_cost_usd": r["est_cost_usd"], "quality": r["quality"],
+                 "network": {k: r["network"].get(k) for k in ("online", "latency_ms", "packet_loss", "profile")}
+                 if isinstance(r.get("network"), dict) else None}
+                for r in rows]
 
     @staticmethod
     def cost(model: str, provider: str, usage: dict) -> tuple[float, float]:

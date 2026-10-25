@@ -1,4 +1,4 @@
-"""Okada Router gateway — OpenAI-compatible resilience layer.
+"""Okada Router gateway — OpenAI-compatible resilience layer + Okada Cloud console.
 
 Point any OpenAI SDK at http://localhost:8080/v1 and requests are routed
 across cloud-large / cloud-small / alternate / cache / local / offline-queue
@@ -9,9 +9,13 @@ primary cloud model, no cache, no fallback) — this emulates a naive app
 calling the provider directly, and is what the benchmark compares against.
 
 Other request headers:
-  authorization: Bearer <key>     tenant virtual key (see gateway/tenants.py)
+  authorization: Bearer <key>     tenant virtual key (static via env/YAML, or
+                                  created in the console and stored hashed)
   x-okada-upstream-key: <key>     bring-your-own provider key for this call
   x-okada-idempotency-key: <id>   dedupe a retried request in the offline queue
+
+Console (served at /console, API under /console/api): accounts, tenants,
+virtual keys, per-tenant dashboards, a playground that chats as the tenant.
 """
 import asyncio
 import json
@@ -27,6 +31,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from cache.cache import ResponseCache
+from gateway.accounts import AccountError, AccountStore
 from gateway.config import load_config
 from gateway.model_probe import ModelProbe
 from gateway.providers import build_registry, upstream_key_override
@@ -40,6 +45,7 @@ from network.simulator import PROFILES, simulator
 log = logging.getLogger("okada")
 logging.basicConfig(level=os.getenv("OKADA_LOG_LEVEL", "INFO"))
 
+ROOT = Path(__file__).resolve().parent.parent
 cfg = load_config()
 simulator.enabled = cfg["network"]["simulator_enabled"]
 simulator.set_profile(cfg["network"]["default_profile"])
@@ -63,7 +69,11 @@ queue = QueueStore(path=Path(os.environ["OKADA_QUEUE_DB"]) if os.getenv("OKADA_Q
                    key=load_key_from_env(),
                    retention_s=_qcfg.get("retention_s", 86400),
                    max_attempts=_qcfg.get("max_attempts", 50))
+accounts = AccountStore()
 tenants = load_tenants()
+tenants.store = accounts
+ADMIN_TOKEN = os.getenv("OKADA_ADMIN_TOKEN", "")
+SIGNUP_ENABLED = os.getenv("OKADA_SIGNUP", "1") != "0"
 
 
 async def _flusher():
@@ -80,11 +90,10 @@ async def _flusher():
         for item in queue.due():
             qid = item["id"]
             decision = Decision("cloud-large", "queued request replay after reconnect")
-            tenant = tenants.by_key and next(
-                (t for t in tenants.by_key.values() if t.id == item.get("tenant")), None)
+            t = accounts.tenant(item.get("tenant", "")) or {}
             result = await engine.execute(
                 decision, state, item["messages"], item["max_tokens"], item["temperature"],
-                allow_cloud=not (tenant and tenant.no_offshore))
+                allow_cloud=not t.get("no_offshore", False))
             if result.response is not None:
                 result.response.setdefault("okada", {})["replayed_from_queue"] = qid
                 queue.complete(qid, result.response)
@@ -93,17 +102,26 @@ async def _flusher():
                 queue.fail_attempt(qid, err)
 
 
+async def _sampler():
+    while True:
+        try:
+            monitor.sample()
+        except Exception:
+            pass
+        await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(_flusher()), asyncio.create_task(monitor.probe_loop()),
-             asyncio.create_task(probe.loop())]
+             asyncio.create_task(probe.loop()), asyncio.create_task(_sampler())]
     yield
     for t in tasks:
         t.cancel()
 
 
 app = FastAPI(title="Okada Router", lifespan=lifespan)
-app.mount("/app", StaticFiles(directory=Path(__file__).resolve().parent.parent / "app", html=True))
+app.mount("/app", StaticFiles(directory=ROOT / "app", html=True))
 
 
 @app.get("/", include_in_schema=False)
@@ -111,13 +129,20 @@ async def root():
     return RedirectResponse("/app/")
 
 
+# --------------------------------------------------------------------------
+# auth helpers
+# --------------------------------------------------------------------------
+
+def _err(msg: str, status: int, kind: str = "error"):
+    return JSONResponse({"error": {"message": msg, "type": kind}}, status_code=status)
+
+
 def _auth(request: Request):
     """Resolve the tenant for this request. Returns (tenant, None) or
-    (None, error response). With no keys configured the gateway is open."""
+    (None, error response). With no keys configured anywhere the gateway is open."""
     tenant = tenants.authenticate(request.headers.get("authorization"))
     if tenant is None:
-        return None, JSONResponse({"error": {"message": "missing or invalid Okada API key",
-                                             "type": "auth_error"}}, status_code=401)
+        return None, _err("missing or invalid Okada API key", 401, "auth_error")
     return tenant, None
 
 
@@ -126,9 +151,8 @@ def _budget_exceeded(tenant: Tenant):
         return None
     spent = telemetry.tenant_spend(tenant.id, tenant.budget_window_start())
     if spent >= tenant.max_budget_usd:
-        return JSONResponse({"error": {
-            "message": f"tenant budget exhausted ({spent:.4f} of {tenant.max_budget_usd} USD, "
-                       f"{tenant.budget_duration})", "type": "budget_exceeded"}}, status_code=429)
+        return _err(f"tenant budget exhausted ({spent:.4f} of {tenant.max_budget_usd} USD, "
+                    f"{tenant.budget_duration})", 429, "budget_exceeded")
     return None
 
 
@@ -177,30 +201,28 @@ def _sse_wrap(response: dict):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@app.post("/v1/chat/completions")
-async def chat_completions(request: Request):
-    tenant, denied = _auth(request)
-    if denied:
-        return denied
+# --------------------------------------------------------------------------
+# chat core (shared by /v1/chat/completions and the console playground)
+# --------------------------------------------------------------------------
+
+async def _handle_chat(tenant: Tenant, body: dict, headers, request_bytes: int):
     if denied := _budget_exceeded(tenant):
         return denied
     t0 = time.perf_counter()
-    body = await request.json()
     messages = body.get("messages", [])
     if not messages:
-        return JSONResponse({"error": {"message": "messages is required"}}, status_code=400)
+        return _err("messages is required", 400)
     max_tokens = body.get("max_tokens") or cfg["routing"]["max_tokens_default"]
     temperature = body.get("temperature", 0.7)
     stream = bool(body.get("stream", False))
-    direct = request.headers.get("x-okada-mode", "").lower() == "direct"
+    direct = headers.get("x-okada-mode", "").lower() == "direct"
     request_id = f"okr_{uuid.uuid4().hex[:10]}"
-    request_bytes = int(request.headers.get("content-length") or 0)
-    idem_key = request.headers.get("x-okada-idempotency-key") or body.get("okada_idempotency_key")
+    idem_key = headers.get("x-okada-idempotency-key") or body.get("okada_idempotency_key")
 
     # bring-your-own upstream key: per-request header beats tenant config
     overrides = dict(tenant.upstream_keys)
-    if request.headers.get("x-okada-upstream-key"):
-        overrides["*"] = request.headers["x-okada-upstream-key"]
+    if headers.get("x-okada-upstream-key"):
+        overrides["*"] = headers["x-okada-upstream-key"]
     token = upstream_key_override.set(overrides or None)
     try:
         state = monitor.get_state()
@@ -241,6 +263,16 @@ async def chat_completions(request: Request):
                        queued=result.queued)
     finally:
         upstream_key_override.reset(token)
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request):
+    tenant, denied = _auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    return await _handle_chat(tenant, body, request.headers,
+                              int(request.headers.get("content-length") or 0))
 
 
 def _provider_for(route: str) -> str:
@@ -296,9 +328,7 @@ async def _direct(request_id, tenant, state, messages, max_tokens, temperature, 
         total_ms=total_ms, success=ok, messages=messages, tenant=tenant.id,
         response_text=(resp or {}).get("choices", [{}])[0].get("message", {}).get("content", ""))
     if not ok:
-        return JSONResponse(
-            {"error": {"message": f"upstream failure (no resilience): {err}", "type": "upstream_error"}},
-            status_code=502)
+        return _err(f"upstream failure (no resilience): {err}", 502, "upstream_error")
     resp["okada"] = {"request_id": request_id, "mode": "direct", "route": "direct-cloud",
                      "network": state.to_dict()}
     return _sse_wrap(resp) if stream else resp
@@ -377,6 +407,10 @@ def _stream(request_id, tenant, state, decision, messages, max_tokens, temperatu
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+# --------------------------------------------------------------------------
+# gateway endpoints
+# --------------------------------------------------------------------------
+
 @app.get("/v1/models")
 async def models():
     data = [{"id": role.model, "object": "model", "owned_by": role.provider.name,
@@ -385,12 +419,11 @@ async def models():
     return {"object": "list", "data": data}
 
 
-@app.get("/okada/health")
-async def health():
+def _health_dict() -> dict:
     return {
         "status": "ok",
         "mock_mode": registry.mock_mode,
-        "auth": "open" if tenants.open else f"{len(tenants.by_key)} key(s)",
+        "auth": "open" if tenants.open else "keys",
         "queue_encrypted_at_rest": queue.cipher.enabled,
         "routes": {
             route: {"provider": role.provider.name, "model": role.model,
@@ -403,6 +436,11 @@ async def health():
         "model_probe": {"enabled": probe.enabled, "interval_s": probe.interval_s,
                         "last_run": probe.last_run, "results": probe.last_results},
     }
+
+
+@app.get("/okada/health")
+async def health():
+    return _health_dict()
 
 
 @app.post("/okada/probe/models")
@@ -418,18 +456,12 @@ async def get_network():
     return monitor.get_state().to_dict()
 
 
-@app.post("/okada/network")
-async def set_network(request: Request):
-    _, denied = _auth(request)
-    if denied:
-        return denied
-    body = await request.json()
-    profile = body.get("profile")
+async def _set_profile(profile: str):
     if profile == "real":
         monitor.set_mode("real")
-        # prime the window so the switch reflects reality immediately
-        for _ in range(3):
+        for _ in range(3):      # prime the window so the switch reflects reality immediately
             await monitor.probe_once()
+        monitor.sample()
         return {"ok": True, "profile": "real", "state": monitor.get_state().to_dict()}
     try:
         monitor.set_mode("sim")
@@ -437,7 +469,17 @@ async def set_network(request: Request):
     except KeyError as e:
         return JSONResponse({"error": str(e), "profiles": sorted(PROFILES) + ["real"]},
                             status_code=400)
+    monitor.sample()
     return {"ok": True, "profile": p.name, "state": monitor.get_state().to_dict()}
+
+
+@app.post("/okada/network")
+async def set_network(request: Request):
+    _, denied = _auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    return await _set_profile(body.get("profile"))
 
 
 @app.get("/okada/stats")
@@ -454,8 +496,7 @@ async def feedback(request: Request):
     body = await request.json()
     rating = body.get("rating")
     if rating not in ("up", "down") or not body.get("request_id"):
-        return JSONResponse({"error": "request_id and rating (up|down) are required"},
-                            status_code=400)
+        return _err("request_id and rating (up|down) are required", 400)
     known = telemetry.feedback(body["request_id"], rating, body.get("comment", ""), tenant.id)
     return {"ok": True, "known_request": known}
 
@@ -475,7 +516,7 @@ async def queue_item(qid: str, request: Request):
         return denied
     item = queue.get(qid)
     if item is None:
-        return JSONResponse({"error": "unknown queue id"}, status_code=404)
+        return _err("unknown queue id", 404)
     return item
 
 
@@ -495,3 +536,224 @@ async def whoami(request: Request):
         return denied
     return {**tenant.public(),
             "spent_usd_window": telemetry.tenant_spend(tenant.id, tenant.budget_window_start())}
+
+
+# --------------------------------------------------------------------------
+# console API
+# --------------------------------------------------------------------------
+
+def _session(request: Request) -> dict | None:
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else None
+    return accounts.account_for_session(token)
+
+
+def _is_admin(request: Request) -> bool:
+    return bool(ADMIN_TOKEN) and request.headers.get("x-okada-admin", "") == ADMIN_TOKEN
+
+
+def _console_auth(request: Request):
+    acc = _session(request)
+    if acc is None:
+        return None, _err("sign in required", 401, "auth_error")
+    return acc, None
+
+
+def _owned(request: Request, tid: str):
+    acc, denied = _console_auth(request)
+    if denied:
+        return None, None, denied
+    if not accounts.owns(acc["id"], tid):
+        return None, None, _err("unknown tenant", 404)
+    return acc, accounts.tenant(tid), None
+
+
+def _tenant_obj(t: dict) -> Tenant:
+    return Tenant(id=t["id"], key=None, max_budget_usd=t["max_budget_usd"],
+                  budget_duration=t["budget_duration"], models_allowed=t["models_allowed"],
+                  no_offshore=t["no_offshore"], degraded_max_tokens=t["degraded_max_tokens"])
+
+
+def _tenant_view(t: dict) -> dict:
+    tobj = _tenant_obj(t)
+    return {**t, "keys": accounts.keys_for_tenant(t["id"]),
+            "spent_usd_window": telemetry.tenant_spend(t["id"], tobj.budget_window_start()),
+            "requests_24h": len([r for r in telemetry.records
+                                 if r["tenant"] == t["id"] and r["ts"] > time.time() - 86400])}
+
+
+@app.get("/console/api/config")
+async def console_config():
+    return {"signup_enabled": SIGNUP_ENABLED, "mock_mode": registry.mock_mode,
+            "profiles": sorted(PROFILES) + ["real"],
+            "network_control": registry.mock_mode or bool(ADMIN_TOKEN)}
+
+
+@app.post("/console/api/signup")
+async def console_signup(request: Request):
+    if not SIGNUP_ENABLED:
+        return _err("self-serve signup is disabled on this deployment", 403)
+    body = await request.json()
+    try:
+        acc = accounts.signup(body.get("email", ""), body.get("password", ""), body.get("name", ""))
+        token = accounts.login(acc["email"], body.get("password", ""))
+    except AccountError as e:
+        return _err(str(e), 400)
+    # a first tenant + key so the dashboard is never empty
+    t = accounts.create_tenant(acc["id"], body.get("name") or "my-app")
+    k = accounts.create_key(t["id"], "default")
+    return {"token": token, "account": acc, "first_tenant": t["id"], "first_key": k["key"]}
+
+
+@app.post("/console/api/login")
+async def console_login(request: Request):
+    body = await request.json()
+    try:
+        token = accounts.login(body.get("email", ""), body.get("password", ""))
+    except AccountError as e:
+        return _err(str(e), 401, "auth_error")
+    return {"token": token, "account": accounts.account_for_session(token)}
+
+
+@app.post("/console/api/logout")
+async def console_logout(request: Request):
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        accounts.logout(auth[7:].strip())
+    return {"ok": True}
+
+
+@app.get("/console/api/me")
+async def console_me(request: Request):
+    acc, denied = _console_auth(request)
+    if denied:
+        return denied
+    return {"account": acc,
+            "tenants": [_tenant_view(t) for t in accounts.tenants_for_account(acc["id"])],
+            "gateway": _health_dict(), "network": monitor.get_state().to_dict()}
+
+
+@app.post("/console/api/tenants")
+async def console_create_tenant(request: Request):
+    acc, denied = _console_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    try:
+        t = accounts.create_tenant(acc["id"], body.get("name", ""),
+                                   max_budget_usd=body.get("max_budget_usd"),
+                                   budget_duration=body.get("budget_duration"),
+                                   models_allowed=body.get("models_allowed"),
+                                   no_offshore=body.get("no_offshore"),
+                                   degraded_max_tokens=body.get("degraded_max_tokens"))
+    except AccountError as e:
+        return _err(str(e), 400)
+    return _tenant_view(t)
+
+
+@app.get("/console/api/tenants/{tid}")
+async def console_tenant(tid: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    return _tenant_view(t)
+
+
+@app.patch("/console/api/tenants/{tid}")
+async def console_update_tenant(tid: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    body = await request.json()
+    return _tenant_view(accounts.update_tenant(tid, **body))
+
+
+@app.post("/console/api/tenants/{tid}/keys")
+async def console_create_key(tid: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    body = await request.json() if int(request.headers.get("content-length") or 0) else {}
+    return accounts.create_key(tid, body.get("name", ""))
+
+
+@app.delete("/console/api/tenants/{tid}/keys/{key_id}")
+async def console_revoke_key(tid: str, key_id: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    return {"ok": accounts.revoke_key(tid, key_id)}
+
+
+@app.get("/console/api/tenants/{tid}/stats")
+async def console_stats(tid: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    hours = max(1, min(int(request.query_params.get("hours", 24)), 24 * 7))
+    bucket = int(request.query_params.get("bucket", 3600 if hours > 6 else 300))
+    since = time.time() - hours * 3600
+    return {"since": since, "hours": hours, "bucket_s": bucket,
+            "summary": telemetry.summary_for(tid, since),
+            "series": telemetry.series(tid, since, bucket),
+            "recent": telemetry.recent(tid, 50)}
+
+
+@app.post("/console/api/tenants/{tid}/chat")
+async def console_chat(tid: str, request: Request):
+    """Playground: chat as this tenant using the console session (no raw key
+    needed; keys are only ever shown once)."""
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    body = await request.json()
+    return await _handle_chat(_tenant_obj(t), body, request.headers,
+                              int(request.headers.get("content-length") or 0))
+
+
+@app.post("/console/api/tenants/{tid}/feedback")
+async def console_feedback(tid: str, request: Request):
+    _, t, denied = _owned(request, tid)
+    if denied:
+        return denied
+    body = await request.json()
+    if body.get("rating") not in ("up", "down") or not body.get("request_id"):
+        return _err("request_id and rating (up|down) are required", 400)
+    return {"ok": True, "known_request": telemetry.feedback(
+        body["request_id"], body["rating"], body.get("comment", ""), tid)}
+
+
+@app.get("/console/api/network")
+async def console_network(request: Request):
+    _, denied = _console_auth(request)
+    if denied:
+        return denied
+    return {"state": monitor.get_state().to_dict(), "history": list(monitor.history),
+            "profiles": sorted(PROFILES) + ["real"],
+            "control": registry.mock_mode or _is_admin(request)}
+
+
+@app.post("/console/api/network")
+async def console_set_network(request: Request):
+    """Switching the simulated profile is a global, demo-only action: allowed
+    for any signed-in user while the gateway runs on mock providers, and for
+    the admin token otherwise."""
+    _, denied = _console_auth(request)
+    if denied:
+        return denied
+    if not (registry.mock_mode or _is_admin(request)):
+        return _err("network profile control is admin-only on a live deployment", 403)
+    body = await request.json()
+    return await _set_profile(body.get("profile"))
+
+
+@app.get("/console/api/admin/overview")
+async def console_admin(request: Request):
+    if not _is_admin(request):
+        return _err("admin token required", 403)
+    return {"accounts": accounts.overview(), "telemetry": telemetry.summary(),
+            "queue": queue.status(), "gateway": _health_dict()}
+
+
+# static console LAST: a mount registered earlier would swallow /console/api/*
+app.mount("/console", StaticFiles(directory=ROOT / "app" / "console", html=True))

@@ -92,7 +92,7 @@ Simulation is application-level (latency, loss and outages injected into outboun
 ### Benchmark & tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 40 tests
+.venv/bin/python -m pytest tests/ -q       # 46 tests
 .venv/bin/python scripts/benchmark.py      # direct cloud vs Okada, per network profile
 .venv/bin/python scripts/check_models.py --complete   # are the configured model IDs still alive?
 ```
@@ -107,6 +107,31 @@ Groq retired its Llama 3.x free-tier models on 16 Aug 2026 and `qwen3.6-27b` on 
 - classifies upstream errors: 404/410/"decommissioned" marks the *model* gone (the provider is fine, the rung is skipped, the next successful probe re-enables it); 429 moves down the ladder without retrying the same free tier; anything else counts against provider health.
 
 `GET /okada/health` shows `model_ok` per route; `POST /okada/probe/models` runs the probe now.
+
+## Okada Cloud console
+
+Open `/console` on any running gateway. It is the product surface on top of the
+gateway: create an account, get a tenant and a key, watch what the gateway is
+doing for you, and try it without writing code.
+
+- **Accounts and tenants.** One account owns many tenants (one per app or
+  customer); each tenant has its own keys, budget, cache namespace and routing
+  flags. Keys are shown once and stored hashed. Signup creates a first tenant
+  and key so the dashboard is never empty. `OKADA_SIGNUP=0` makes it invite-only.
+- **Overview.** Requests by route over time, answered rate, p50 latency, the
+  network as the gateway saw it (offline bands), spend versus list price, and a
+  recent-requests table with the routing reason for each. No prompt text is
+  ever stored or shown.
+- **Playground.** Chat as the tenant through the console session (no raw key
+  needed), see each rung the router tries, thumbs-up/down labels go straight
+  into the routing dataset. On a mock-provider gateway any user can flip the
+  simulated network; on a live one that needs `OKADA_ADMIN_TOKEN`.
+- **Setup.** curl / Python / JavaScript snippets with the right base URL.
+- **Admin.** `GET /console/api/admin/overview` with header `x-okada-admin`.
+
+Accounts live in `logs/accounts.sqlite` (`OKADA_ACCOUNTS_DB` to move it). The
+gateway is open (no auth) only until the first key exists anywhere — in the
+environment, in `OKADA_KEYS_FILE`, or created in the console.
 
 ## Tenants, virtual keys, budgets
 
@@ -156,6 +181,7 @@ shared box is the one genuine risk this project poses to co-tenants.
 | `GET /okada/health` | provider path health, model liveness, probe results |
 | `POST /okada/probe/models` | run the real-completion model probe now |
 | `GET /okada/tenant` | who am I, what is my budget window spend |
+| `/console`, `/console/api/*` | Okada Cloud console and its API (accounts, tenants, keys, stats, playground) |
 
 ## Honest limitations
 
@@ -173,11 +199,12 @@ Still missing before this is production infrastructure:
 ## Repository
 
 ```
-gateway/    server (FastAPI), routing engine, model probe, telemetry, queue, tenants, config
+gateway/    server (FastAPI), routing engine, model probe, telemetry, queue, tenants, accounts, config
 providers/  openai-compatible (OpenAI/Groq/Gemini/OpenRouter), anthropic, llama.cpp, ollama, mock
 network/    health monitor (path probes), condition simulator
 cache/      exact-match TTL cache, tenant-namespaced
-tests/      routing-policy unit tests + end-to-end gateway tests (40)
+tests/      routing-policy unit tests + end-to-end gateway and console tests (46)
+app/        demo chat app (/app) and the Okada Cloud console (/console)
 demo/       terminal chat client
 scripts/    resilience benchmark, model-ID checker, local-model measurement, key installer
 docs/       whitepaper, Oct 2026 roadmap and the research behind it

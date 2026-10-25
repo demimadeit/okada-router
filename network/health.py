@@ -86,6 +86,14 @@ class NetworkMonitor:
         self.targets: list[tuple[str, str]] = list(INTERNET_TARGETS)
         self._health: dict[str, TargetHealth] = defaultdict(TargetHealth)
         self._i = 0
+        self.history: deque = deque(maxlen=1440)   # sampled states for the console timeline
+
+    def sample(self) -> dict:
+        s = self.get_state()
+        point = {"t": round(time.time(), 1), "online": s.online, "latency_ms": s.latency_ms,
+                 "packet_loss": s.packet_loss, "profile": s.profile, "source": s.source}
+        self.history.append(point)
+        return point
 
     def register_provider(self, name: str, base_url: str):
         """Probe the provider's own endpoint, so 'is the cloud reachable'

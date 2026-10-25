@@ -37,8 +37,10 @@ services:
       OKADA_KEYS_FILE: ${OKADA_KEYS_FILE:-}
       OKADA_QUEUE_KEY: ${OKADA_QUEUE_KEY:-}
       OKADA_FREE_TIER_PROVIDERS: ${OKADA_FREE_TIER_PROVIDERS:-groq,gemini,openrouter}
+      OKADA_ADMIN_TOKEN: ${OKADA_ADMIN_TOKEN:-}       # unlocks /console/api/admin and network control
+      OKADA_SIGNUP: ${OKADA_SIGNUP:-1}                # 0 = invite-only (create accounts via admin)
     volumes:
-      - okada-logs:/app/logs        # queue.sqlite + telemetry survive container restarts
+      - okada-logs:/app/logs        # queue/accounts sqlite + telemetry survive restarts
     depends_on:
       - llama
     restart: unless-stopped

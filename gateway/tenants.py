@@ -62,16 +62,24 @@ OPEN_TENANT = Tenant(id="default")
 
 
 class TenantRegistry:
-    def __init__(self, tenants: list[Tenant]):
+    """Static keys (env / YAML) plus, optionally, the console's account store
+    (gateway/accounts.py) for keys created at runtime."""
+
+    def __init__(self, tenants: list[Tenant], store=None):
         self.by_key = {t.key: t for t in tenants if t.key}
+        self.store = store
 
     @property
     def open(self) -> bool:
-        return not self.by_key
+        """Open (no auth) only while no key exists anywhere: none in env/YAML
+        and none created in the console. Creating the first key closes it."""
+        if self.by_key:
+            return False
+        return self.store is None or not self.store.has_keys()
 
     def authenticate(self, authorization: str | None) -> Tenant | None:
         """Return the tenant for a bearer header, OPEN_TENANT when no keys are
-        configured, or None when the key is missing/invalid."""
+        configured anywhere, or None when the key is missing/invalid."""
         if self.open:
             return OPEN_TENANT
         if not authorization or not authorization.lower().startswith("bearer "):
@@ -80,6 +88,8 @@ class TenantRegistry:
         for key, tenant in self.by_key.items():
             if hmac.compare_digest(presented, key):
                 return tenant
+        if self.store is not None:
+            return self.store.tenant_for_key(presented)
         return None
 
 
