@@ -1,0 +1,6 @@
+# HTTPS reverse proxy for Okada on a VPS. Replace the hostname.
+# Caddy fetches and renews the Let's Encrypt certificate itself.
+okada.example.com {
+    reverse_proxy 127.0.0.1:8080
+    encode gzip
+}

@@ -54,6 +54,14 @@ holds provider keys.
 Optional, unverified upgrade to Qwen3.5 with speculative decoding:
 `docker compose -f docker-compose.yml -f docker-compose.qwen35.yml up` (read the file first).
 
+## Quickstart — one script, no Docker
+
+```bash
+./scripts/run_local.sh     # venv, deps, gateway + console on http://localhost:8080
+```
+
+Deploying to a VPS (sizes, HTTPS, env): see `docs/DEPLOY.md`.
+
 ## Quickstart — from source
 
 ```bash
@@ -207,7 +215,8 @@ tests/      routing-policy unit tests + end-to-end gateway and console tests (46
 app/        demo chat app (/app) and the Okada Cloud console (/console)
 demo/       terminal chat client
 scripts/    resilience benchmark, model-ID checker, local-model measurement, key installer
-docs/       whitepaper, Oct 2026 roadmap and the research behind it
+docs/       whitepaper, Oct 2026 roadmap and research, DEPLOY.md (VPS guide)
+deploy/     Caddyfile for HTTPS
 adtc/       ADTC 2026 submission materials (the challenge concluded 19 Oct 2026)
 ```
 
